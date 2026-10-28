@@ -59,6 +59,7 @@ const envSchema = z.object({
   // Optional until Members A and C need them.
   ASSEMBLYAI_API_KEY: optional(z.string()),
   GROQ_API_KEY: optional(z.string()),
+  ASR_PROVIDER: optional(z.enum(['assemblyai', 'groq'])),
   OPENROUTER_API_KEY: optional(z.string()),
   LLM_BASE_URL: optional(z.string().url('must be a full URL, e.g. https://api.groq.com/openai/v1')),
   LLM_MODEL: optional(z.string()),
