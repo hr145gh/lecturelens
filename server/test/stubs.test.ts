@@ -36,9 +36,6 @@ interface Stub {
 }
 
 const STUBS: Stub[] = [
-  { method: 'get', path: `/lectures/${L}/transcript`, owner: 'A', prompt: 'PA.1', feature: 'Transcript retrieval', teacherOnly: false },
-  { method: 'patch', path: `/lectures/${L}/segments/14`, body: { text: 'Corrected sentence.' }, owner: 'A', prompt: 'PA.1', feature: 'Transcript segment correction', teacherOnly: true },
-  { method: 'post', path: `/lectures/${L}/transcript/approve`, owner: 'A', prompt: 'PA.1', feature: 'Transcript approval', teacherOnly: true },
   { method: 'get', path: `/lectures/${L}/topics`, owner: 'B', prompt: 'PB.1', feature: 'Topic sections', teacherOnly: false },
   { method: 'patch', path: `/topics/${ID}`, body: { label: 'Gradient descent' }, owner: 'B', prompt: 'PB.1', feature: 'Topic editing', teacherOnly: true },
   { method: 'post', path: `/topics/${ID}/approve`, owner: 'B', prompt: 'PB.1', feature: 'Topic approval', teacherOnly: true },
@@ -92,8 +89,7 @@ describe('A/B/C stub routes', () => {
   );
 
   it.each([
-    ['PATCH /lectures/:id/segments/:index', STUBS[1]!],
-    ['POST /lectures/:id/questions/generate', STUBS[13]!],
+    ['POST /lectures/:id/questions/generate', STUBS[10]!],
   ])('%s with a student token → 403 FORBIDDEN', async (_name, stub) => {
     const res = await call(stub, student).expect(403);
     expect(res.body.error.code).toBe('FORBIDDEN');

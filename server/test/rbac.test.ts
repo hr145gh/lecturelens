@@ -109,8 +109,15 @@ const TEACHER_ONLY: Array<[string, Call]> = [
   ['approve or reject a question', { method: 'patch', path: () => `/questions/${ID}`, body: { status: 'approved' } }],
 ];
 
-/* Teacher-only routes still stubbed (everything but D's live lecture routes): a teacher passes the guards → 501. */
-const LIVE_LECTURE_ROUTES = ['upload', 'read processing status', 'reprocess', 'delete a lecture'];
+/* Teacher-only routes that remain stubbed: a teacher passes the guards → 501. */
+const LIVE_LECTURE_ROUTES = [
+  'upload',
+  'read processing status',
+  'reprocess',
+  'delete a lecture',
+  'patch a transcript segment',
+  'approve a transcript',
+];
 const TEACHER_ONLY_STUBS = TEACHER_ONLY.filter(([cell]) => !LIVE_LECTURE_ROUTES.includes(cell));
 
 describe('student', () => {
