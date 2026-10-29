@@ -9,11 +9,12 @@
  *  Enforced by src/services/boundaries.test.ts, which fails the test suite on a violation.
  *
  *  Adapter per domain comes from VITE_USE_MOCKS (parsed once, at module load):
- *    all                       every domain uses services/mock   (default in dev only)
+ *    all                       every domain uses services/mock (offline UI work; accounts vanish on reload)
  *    none                      every domain uses services/http
  *    auth,lectures,transcript  only the listed domains are mocked; the rest use http
  *  Domains: auth, lectures, transcript, topics, summaries, search, qa, quizzes, revision.
- *  Unset in a production build means `none`: fixture data must never ship as real data.
+ *  Unset: in development, DEV_DEFAULT_MOCKS (only the domains the server cannot answer yet);
+ *  in a production build, `none` — fixture data must never ship as real data.
  * ============================================================================================
  */
 import { httpServices } from './http';
@@ -24,10 +25,17 @@ export type { Services, ServiceDomain } from './types';
 export * from './types';
 
 /**
- * Parse a VITE_USE_MOCKS value into the set of mocked domains. Unknown names are ignored with a
- * warning. When unset: `all` in development, `none` in production builds.
+ * Domains whose server routes still answer 501 (Members A, B, C), mocked by default in development.
+ * Everything else — auth and lectures — talks to the real API, so a registered account is really
+ * saved. Remove a domain from this list when its module lands.
  */
-export function parseMockFlag(raw: string | undefined, fallback: 'all' | 'none' = 'all'): Set<ServiceDomain> {
+export const DEV_DEFAULT_MOCKS = 'transcript,topics,summaries,search,qa,quizzes,revision';
+
+/**
+ * Parse a VITE_USE_MOCKS value into the set of mocked domains. Unknown names are ignored with a
+ * warning. `fallback` applies when the variable is unset.
+ */
+export function parseMockFlag(raw: string | undefined, fallback = 'all'): Set<ServiceDomain> {
   const value = (raw ?? fallback).trim().toLowerCase();
   if (value === '' || value === 'all') return new Set(SERVICE_DOMAINS);
   if (value === 'none') return new Set();
@@ -57,7 +65,7 @@ export function selectServices(mocked: Set<ServiceDomain>): Services {
 
 export const mockedDomains: ReadonlySet<ServiceDomain> = parseMockFlag(
   import.meta.env.VITE_USE_MOCKS,
-  import.meta.env.PROD ? 'none' : 'all',
+  import.meta.env.PROD ? 'none' : DEV_DEFAULT_MOCKS,
 );
 
 export const services: Services = selectServices(new Set(mockedDomains));
@@ -68,7 +76,11 @@ export { DEMO_ACCOUNTS, type DemoAccount } from './demoAccounts';
 export const showDemoAccounts: boolean = mockedDomains.has('auth') || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
 
 if (import.meta.env.DEV && mockedDomains.size > 0) {
-  console.info(
-    `[services] Mock data for: ${[...mockedDomains].join(', ')}. Demo login: teacher@lecturelens.dev or student@lecturelens.dev, password "lecturelens".`,
+  console.info(`[services] Mock data for: ${[...mockedDomains].join(', ')}.`);
+}
+if (import.meta.env.DEV && mockedDomains.has('auth')) {
+  // Say it loudly: with mocked auth nothing reaches the server or the database.
+  console.warn(
+    '[services] Auth is MOCKED (VITE_USE_MOCKS includes auth): accounts you register live in memory only, are never sent to the API or MongoDB, and vanish on reload. Demo login: teacher@lecturelens.dev or student@lecturelens.dev, password "lecturelens".',
   );
 }

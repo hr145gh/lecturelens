@@ -14,10 +14,22 @@ const PRUNE_AT = 10_000;
 /**
  * Fixed-window, per-IP, in-memory rate limit: at most `max` requests per `windowMs`;
  * the next one gets 429 RATE_LIMITED with a Retry-After header. Every attempt counts,
- * successful or not. Single-process only (no shared store), which fits this deployment.
+ * unless `onlyFailures` is set. Single-process only (no shared store), which fits this deployment.
  * Behind a reverse proxy, set Express `trust proxy` so req.ip is the client's address.
  */
-export function rateLimit({ windowMs, max }: { windowMs: number; max: number }): RequestHandler {
+export function rateLimit({
+  windowMs,
+  max,
+  onlyFailures = false,
+}: {
+  windowMs: number;
+  max: number;
+  /**
+   * Count only requests that end in an error status (≥ 400). For login: it throttles password
+   * guessing without locking out someone who signs in and out normally.
+   */
+  onlyFailures?: boolean;
+}): RequestHandler {
   const windows = new Map<string, Window>();
   stores.add(windows);
 
@@ -41,6 +53,13 @@ export function rateLimit({ windowMs, max }: { windowMs: number; max: number }):
     if (window.count > max) {
       res.setHeader('Retry-After', String(resetSec));
       return next(rateLimited(resetSec));
+    }
+    if (onlyFailures) {
+      const counted = window;
+      res.on('finish', () => {
+        // A success gives its slot back (if the window it counted against is still current).
+        if (res.statusCode < 400 && windows.get(key) === counted) counted.count = Math.max(0, counted.count - 1);
+      });
     }
     next();
   };

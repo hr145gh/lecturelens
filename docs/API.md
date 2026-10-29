@@ -21,7 +21,7 @@ Generated from `server/src/routes/index.ts` and the module routers under `server
 | --- | --- | --- | --- | --- |
 | GET | [`/health`](#get-health) | D | public | Implemented |
 | POST | [`/auth/register`](#post-auth-register) | D | public · rate-limited 10 / 15 min / IP | Implemented |
-| POST | [`/auth/login`](#post-auth-login) | D | public · rate-limited 10 / 15 min / IP | Implemented |
+| POST | [`/auth/login`](#post-auth-login) | D | public · 10 failed attempts / 15 min / IP | Implemented |
 | GET | [`/auth/me`](#get-auth-me) | D | any signed-in user | Implemented |
 | GET | [`/users/me`](#get-users-me) | D | any signed-in user | Implemented |
 | PATCH | [`/users/me`](#patch-users-me) | D | any signed-in user | Implemented |
@@ -109,7 +109,7 @@ Generated from `server/src/routes/index.ts` and the module routers under `server
 <a id="post-auth-login"></a>
 ### POST `/auth/login`
 
-**Owner** D · **Auth** public · rate-limited 10 / 15 min / IP · **Status** Implemented
+**Owner** D · **Auth** public · 10 failed attempts / 15 min / IP (successful sign-ins never count) · **Status** Implemented
 
 **Request:** JSON `{ email, password }`.
 

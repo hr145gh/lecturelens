@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosAdapter } from 'axios';
 import { apiClient, isNotImplemented, TOKEN_KEY, UNAUTHORISED_EVENT } from '../lib/apiClient';
-import { parseMockFlag, selectServices } from '.';
+import { DEV_DEFAULT_MOCKS, parseMockFlag, selectServices } from '.';
 import { mockServices } from './mock';
 import { httpServices } from './http';
 import { DEMO_PASSWORD } from './mock/db';
@@ -34,6 +34,15 @@ describe('VITE_USE_MOCKS', () => {
   it('unset means none in a production build (fixtures never ship as real data)', () => {
     expect(parseMockFlag(undefined, 'none').size).toBe(0);
     expect(parseMockFlag('qa', 'none').size).toBe(1);
+  });
+
+  it('unset in development: auth and lectures use the real API, so registered accounts are saved', () => {
+    const services = selectServices(parseMockFlag(undefined, DEV_DEFAULT_MOCKS));
+    expect(services.auth).toBe(httpServices.auth);
+    expect(services.lectures).toBe(httpServices.lectures);
+    for (const domain of ['transcript', 'topics', 'summaries', 'search', 'qa', 'quizzes', 'revision'] as const) {
+      expect(services[domain]).toBe(mockServices[domain]);
+    }
   });
 
   it('selects the adapter per domain', () => {
@@ -105,6 +114,18 @@ describe('apiClient', () => {
     await apiClient.post('/auth/login').catch(() => undefined);
     expect(onEvent).not.toHaveBeenCalled();
     window.removeEventListener(UNAUTHORISED_EVENT, onEvent);
+  });
+
+  it('the http auth adapter registers through POST /auth/register and returns the server\'s answer', async () => {
+    const calls: Array<{ method?: string; url?: string; data: unknown }> = [];
+    const user = { id: '6ae21655e84cced2342afc47', email: 'new@example.edu', name: 'New Person', role: 'student' };
+    apiClient.defaults.adapter = async (config) => {
+      calls.push({ method: config.method, url: config.url, data: JSON.parse(String(config.data)) });
+      return { status: 201, statusText: 'Created', data: { user, token: 'jwt' }, headers: {}, config };
+    };
+    const payload = { name: 'New Person', email: 'new@example.edu', password: 'notebook42', role: 'student' as const };
+    await expect(httpServices.auth.register(payload)).resolves.toEqual({ user, token: 'jwt' });
+    expect(calls).toEqual([{ method: 'post', url: '/auth/register', data: payload }]);
   });
 
   it('login and register never carry a stale token, so their 401 never ends a session', async () => {

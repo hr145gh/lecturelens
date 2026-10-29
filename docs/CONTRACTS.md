@@ -181,7 +181,7 @@ There is **no 400**. All bad-input cases, including unparseable JSON, are `422 V
 | `CONFLICT` | 409 | Duplicate email on register; illegal state transition (e.g. reprocess while processing, generate questions before `ready`). `details` names the current state, e.g. `{ "status": "transcribing" }`. |
 | `PAYLOAD_TOO_LARGE` | 413 | Upload exceeds `MAX_UPLOAD_MB`. `details: { "maxMb": 512 }` |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Upload MIME type not in the accepted list (§5.3). `details: { "mimeType": "..." }` |
-| `RATE_LIMITED` | 429 | Too many attempts from one IP: `POST /auth/login` and `POST /auth/register` each allow 10 per 15 minutes. `details: { "retryAfterSec": 412 }`, plus a `Retry-After` header. |
+| `RATE_LIMITED` | 429 | Too many attempts from one IP within 15 minutes: `POST /auth/login` allows 10 **failed** attempts (successful sign-ins never count, so signing in and out cannot lock anyone out); `POST /auth/register` allows 10 attempts. `details: { "retryAfterSec": 412 }`, plus a `Retry-After` header. |
 
 Adding a new code is a contract change.
 
@@ -495,7 +495,8 @@ lists use `{ items, ... }` as in §1.4.
   `409 CONFLICT`.
 - `POST /auth/login` body `{ email, password }` → `200 { user, token }`. Wrong email *or* password →
   `401 UNAUTHENTICATED` with the same message, `"Invalid email or password"` (do not reveal which).
-- Both are rate-limited per IP (10 per 15 minutes each) → `429 RATE_LIMITED`.
+- Rate-limited per IP per 15 minutes → `429 RATE_LIMITED`: login after 10 failed attempts (successes do
+  not count), register after 10 attempts.
 - `PATCH /users/me` body `{ name }` only; any other field → `422` with `{ "body": "Only \"name\" can be changed" }`.
   Password change is not in v1.
 - `user` object: `{ id, email, name, role, lastLoginAt, createdAt, updatedAt }`.

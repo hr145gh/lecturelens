@@ -6,6 +6,8 @@ import { ROUTER_FUTURE } from '../../routerFuture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../../context/AuthContext';
 import { TOKEN_KEY } from '../../lib/tokenStorage';
+import { ApiRequestError } from '../../lib/apiClient';
+import { services } from '../../services';
 import { passwordStrength } from '../../lib/passwordStrength';
 import { AppRoutes } from '../../routes';
 import { ToastProvider } from '../../components/ui';
@@ -223,6 +225,24 @@ describe('register', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back, Grace' })).toBeTruthy();
     expect(location()).toBe('/app/dashboard');
     expect(screen.getByRole('link', { name: 'Upload' })).toBeTruthy();
+  });
+
+  it('a server error is never shown as success: stays on /register with a readable error, no token, no "Account created" (and keeps the form)', async () => {
+    vi.spyOn(services.auth, 'register').mockRejectedValue(
+      new ApiRequestError({ status: 500, code: 'INTERNAL_ERROR', message: 'Something went wrong on our side. Please try again.' }),
+    );
+    renderAt('/register');
+    fill(/^Full name/, 'Priya Natarajan');
+    fill(/^Email/, 'priya@example.edu');
+    fill(/^Password\*$/, 'notebook42');
+    fill(/^Confirm password/, 'notebook42');
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    expect(await screen.findByText(/Something went wrong on our side/, { selector: '#register-form-error p' })).toBeTruthy();
+    expect(location()).toBe('/register');
+    expect(screen.queryByText('Account created')).toBeNull();
+    expect(localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect((screen.getByLabelText(/^Email/) as HTMLInputElement).value).toBe('priya@example.edu');
+    vi.restoreAllMocks();
   });
 
   it('an existing email is reported on the email field and in the form error', async () => {
