@@ -18,7 +18,7 @@ import { TEST_PASSWORD, authHeader, buildApp, makeStudent, makeTeacher, resetDb 
  * with the prompt that will make them testable.
  */
 
-const app = buildApp();
+const app = await buildApp();
 const api = () => request(app);
 const MP3 = Buffer.concat([Buffer.from('ID3\u0004\u0000\u0000'), Buffer.alloc(512, 1)]);
 

@@ -7,7 +7,7 @@ import { authHeader, buildApp, makeStudent, makeTeacher, resetDb } from './setup
 
 /** The error envelope — docs/CONTRACTS.md §3 — on every failure path, plus request ids. */
 
-const app = buildApp();
+const app = await buildApp();
 const api = () => request(app);
 
 beforeEach(async () => {
