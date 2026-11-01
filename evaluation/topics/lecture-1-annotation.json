@@ -1,0 +1,11 @@
+{
+  "lectureId": "6650c3a0c3b2e41d8a100001",
+  "annotator": "member-b",
+  "boundaries": [
+    { "afterSegmentIndex": 7 },
+    { "afterSegmentIndex": 17 },
+    { "afterSegmentIndex": 25 },
+    { "afterSegmentIndex": 31 },
+    { "afterSegmentIndex": 38 }
+  ]
+}
