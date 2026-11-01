@@ -1,13 +1,16 @@
+﻿import path from 'node:path';
 import {
-  Chunk,
   Lecture,
   STAGE_NAMES,
-  TopicSection,
-  TranscriptSegment,
   type LectureStatus,
   type StageName,
+  type ProcessingStage,
 } from '../../models/index.js';
+import { storageRoot } from '../../config/env.js';
 import { stagesAfter } from '../../modules/lectures/stages.js';
+import { extractAudio, MediaProcessingError } from '../media/extract.js';
+import { transcribeWithFallback } from '../asr/index.js';
+import { persistTranscription } from '../asr/persist.js';
 import { logger } from '../../utils/logger.js';
 import { buildChunks } from '../chunking/chunker.js';
 import {
@@ -19,159 +22,245 @@ import {
 } from '../topics/segmenter.js';
 import { labelSection } from '../topics/labeller.js';
 
-/*
- * ===========================================================================================
- *  PROCESSING PIPELINE — INTERFACE + STUB. Owned jointly: Member D defines the interface,
- *  Member A implements it.
- *
- *  Member A replaces this implementation in PA.1/PA.2.
- *  Do not change the interface without a contract-change issue.
- * ===========================================================================================
- *
- *  Contract for implementations:
- *  - Called WITHOUT await right after the lecture is saved (upload) or claimed for a rerun
- *    (reprocess), so it must never throw synchronously and should record its own failures on
- *    the lecture (status "failed" + `error`) rather than rejecting.
- *  - `fromStage` is the first stage to (re)run; omitted = from "extracting".
- *  - Keep `status`, `statusDetail`, `error` and `stages` up to date as stages run
- *    (CONTRACTS.md §2, §4.2).
- */
 export interface ProcessingPipeline {
   startProcessing(lectureId: string, opts?: { fromStage?: LectureStatus }): Promise<void>;
 }
 
-/** Member A calls these hooks after transcription; they must not be called out of pipeline order. */
-export async function runChunkingStage(lectureId: string): Promise<number> {
-  const lecture = await Lecture.findById(lectureId);
-  if (!lecture) throw new Error('Lecture not found');
-  const segments = await TranscriptSegment.find({ lectureId }).sort({ index: 1 });
-  const built = buildChunks(
-    segments.map((segment) => ({
-      lectureId: String(segment.lectureId),
-      index: segment.index,
-      startSec: segment.startSec,
-      endSec: segment.endSec,
-      text: segment.text,
-    })),
-  );
-
-  await Chunk.deleteMany({ lectureId });
-  await Chunk.insertMany(
-    built.map((chunk) => ({
-      ...chunk,
-      embeddingModel: process.env.EMBEDDING_MODEL ?? 'Xenova/all-MiniLM-L6-v2',
-    })),
-  );
-
-  const at = new Date();
-  lecture.status = 'segmenting';
-  lecture.statusDetail = 'Detecting topic sections.';
-  lecture.error = null;
-  lecture.stages = stagesAfter(lecture.stages, 'segmenting', null, at);
-  await lecture.save();
-  return built.length;
-}
-
-export async function runSegmentingStage(
-  lectureId: string,
-  embedder?: EmbeddingProvider,
-  method: 'embedding_similarity' | 'fixed_window' = 'embedding_similarity',
-): Promise<number> {
-  const lecture = await Lecture.findById(lectureId);
-  if (!lecture || lecture.durationSec == null) throw new Error('Lecture duration is required');
-  const segments = await TranscriptSegment.find({ lectureId }).sort({ index: 1 });
-  const inputs = segments.map((segment) => ({
-    index: segment.index,
-    startSec: segment.startSec,
-    endSec: segment.endSec,
-    text: segment.text,
-  }));
-
-  let sections: TopicSectionOutput[];
-  if (method === 'fixed_window') {
-    sections = fixedWindow(inputs, lecture.durationSec);
-  } else {
-    sections = await embeddingSimilarity(inputs, lecture.durationSec, embedder);
-  }
-  assertTopicTiling(sections, lecture.durationSec, inputs);
-
-  await TopicSection.deleteMany({ lectureId });
-  const created: Array<Record<string, unknown>> = [];
-  for (const section of sections) {
-    const text = inputs
-      .filter((segment) => segment.index >= section.segmentStart && segment.index <= section.segmentEnd)
-      .map((segment) => segment.text)
-      .join(' ');
-    const labelled = await labelSection(text);
-    created.push({
-      lectureId,
-      ...section,
-      label: labelled.label,
-      keywords: labelled.keywords,
-      status: 'pending_review',
-      rejectionReason: null,
-      reviewedBy: null,
-      reviewedAt: null,
-    });
-  }
-  await TopicSection.insertMany(created);
-  return sections.length;
-}
-
-export const NOT_IMPLEMENTED_DETAIL = 'Transcription pipeline not yet implemented (Member A, prompt PA.1)';
+export const NOT_IMPLEMENTED_DETAIL =
+  'Downstream processing stages (chunking, segmenting, summarising, indexing) are not implemented yet.';
 
 const asStage = (status: LectureStatus | undefined): StageName =>
   STAGE_NAMES.includes(status as StageName) ? (status as StageName) : 'extracting';
 
-/**
- * Default implementation until Member A's lands: honestly marks the lecture as failed at the
- * stage it would have started, with error code NOT_IMPLEMENTED. Never fakes success.
- */
+function finishStage(
+  stages: ProcessingStage[],
+  stageName: StageName,
+  now = new Date(),
+): ProcessingStage[] {
+  return stages.map((stage) => {
+    if (stage.name !== stageName || stage.state !== 'running') return stage;
+
+    const ms = stage.startedAt
+      ? Math.max(0, now.getTime() - stage.startedAt.getTime())
+      : 0;
+
+    return {
+      ...stage,
+      state: 'done',
+      ms,
+      finishedAt: now,
+    };
+  });
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function recordFailure(
+  lectureId: string,
+  stage: StageName,
+  code: 'TRANSCRIPTION_FAILED' | 'PROVIDER_UNAVAILABLE' | 'INTERNAL_ERROR' | 'NOT_IMPLEMENTED',
+  message: string,
+): Promise<void> {
+  const lecture = await Lecture.findById(lectureId);
+  if (!lecture || lecture.status === 'ready') return;
+
+  const at = new Date();
+  lecture.status = 'failed';
+  lecture.statusDetail = message;
+  lecture.error = { stage, code, message, at };
+  lecture.stages = stagesAfter(lecture.stages, 'failed', stage, at);
+  await lecture.save();
+}
+
 export const notImplementedPipeline: ProcessingPipeline = {
   async startProcessing(lectureId, opts) {
-    const stage = asStage(opts?.fromStage);
-    logger.warn('Processing pipeline is not implemented yet; marking the lecture failed', { lectureId, stage });
+    const requestedStage = asStage(opts?.fromStage);
+
     try {
       const lecture = await Lecture.findById(lectureId);
-      if (!lecture || lecture.status === 'ready' || lecture.status === 'failed') return; // deleted or settled
-      const at = new Date();
-      lecture.status = 'failed';
-      lecture.statusDetail = NOT_IMPLEMENTED_DETAIL;
-      lecture.error = { stage, code: 'NOT_IMPLEMENTED', message: NOT_IMPLEMENTED_DETAIL, at };
-      lecture.stages = stagesAfter(lecture.stages, 'failed', stage, at);
-      await lecture.save();
-    } catch (err) {
-      logger.error('Could not record the pipeline stub failure', { lectureId, error: err });
+      if (!lecture || lecture.status === 'ready') return;
+
+      const stageIndex = STAGE_NAMES.indexOf(requestedStage);
+
+      // PA.1 implements extraction and transcription only.
+      // Reprocessing from a later stage must not silently rerun ASR.
+      if (stageIndex >= STAGE_NAMES.indexOf('chunking')) {
+        await recordFailure(
+          lectureId,
+          requestedStage,
+          'NOT_IMPLEMENTED',
+          NOT_IMPLEMENTED_DETAIL,
+        );
+        return;
+      }
+
+      let activeStage: StageName = requestedStage;
+
+      if (requestedStage === 'extracting') {
+        const at = new Date();
+        lecture.status = 'extracting';
+        lecture.statusDetail = 'Extracting audio from uploaded media.';
+        lecture.error = null;
+        lecture.stages = stagesAfter(lecture.stages, 'extracting', null, at);
+        await lecture.save();
+
+        const mediaPath = path.resolve(storageRoot, lecture.mediaPath);
+        const extracted = await extractAudio(mediaPath);
+
+        lecture.audioPath = path.relative(storageRoot, extracted.audioPath);
+        lecture.durationSec = extracted.durationSec;
+        lecture.stages = finishStage(lecture.stages, 'extracting');
+        lecture.status = 'transcribing';
+        lecture.statusDetail = 'Audio extracted; transcription is in progress.';
+        lecture.stages = stagesAfter(lecture.stages, 'transcribing', null);
+        await lecture.save();
+
+        activeStage = 'transcribing';
+      } else {
+        activeStage = 'transcribing';
+
+        if (!lecture.audioPath) {
+          await recordFailure(
+            lectureId,
+            'transcribing',
+            'INTERNAL_ERROR',
+            'Cannot resume transcription because the extracted audio path is missing. Reprocess from extracting.',
+          );
+          return;
+        }
+
+        lecture.status = 'transcribing';
+        lecture.statusDetail = 'Transcription is in progress.';
+        lecture.error = null;
+        lecture.stages = stagesAfter(lecture.stages, 'transcribing', null);
+        await lecture.save();
+      }
+
+      const current = await Lecture.findById(lectureId);
+      if (!current || current.status === 'ready') return;
+
+      const audioPath = current.audioPath
+        ? path.resolve(storageRoot, current.audioPath)
+        : null;
+
+      if (!audioPath) {
+        await recordFailure(
+          lectureId,
+          activeStage,
+          'INTERNAL_ERROR',
+          'Audio path is missing; transcription cannot start.',
+        );
+        return;
+      }
+
+      let result;
+      try {
+        result = await transcribeWithFallback(audioPath);
+      } catch (error) {
+        const message = messageOf(error);
+        logger.error('Both ASR providers failed', { lectureId, error: message });
+        await recordFailure(
+          lectureId,
+          'transcribing',
+          'TRANSCRIPTION_FAILED',
+          `Transcription failed: ${message}`,
+        );
+        return;
+      }
+
+      await persistTranscription(lectureId, result);
+
+      const afterTranscription = await Lecture.findById(lectureId);
+      if (!afterTranscription) return;
+
+      afterTranscription.stages = finishStage(
+        afterTranscription.stages,
+        'transcribing',
+      );
+      await afterTranscription.save();
+
+      // PA.1 ends at transcription. Do not report ready while downstream stages
+      // have no implementation to produce chunks, topics, summaries, or indexes.
+      await recordFailure(
+        lectureId,
+        'chunking',
+        'NOT_IMPLEMENTED',
+        NOT_IMPLEMENTED_DETAIL,
+      );
+    } catch (error) {
+      const message = messageOf(error);
+      logger.error('Processing pipeline failed', { lectureId, error: message });
+
+      try {
+        const lecture = await Lecture.findById(lectureId);
+        if (!lecture || lecture.status === 'ready' || lecture.status === 'failed') return;
+
+        const stage = asStage(lecture.status);
+        await recordFailure(
+          lectureId,
+          stage,
+          stage === 'transcribing' ? 'TRANSCRIPTION_FAILED' : 'INTERNAL_ERROR',
+          message,
+        );
+      } catch (recordError) {
+        logger.error('Could not record pipeline failure', {
+          lectureId,
+          error: messageOf(recordError),
+        });
+      }
     }
   },
 };
 
 let pipeline: ProcessingPipeline = notImplementedPipeline;
 
-/** Swap the implementation (Member A's pipeline, or a fake in tests). */
 export function setPipeline(next: ProcessingPipeline): void {
   pipeline = next;
 }
 
-export function startProcessing(lectureId: string, opts?: { fromStage?: LectureStatus }): Promise<void> {
+export function startProcessing(
+  lectureId: string,
+  opts?: { fromStage?: LectureStatus },
+): Promise<void> {
   return pipeline.startProcessing(lectureId, opts);
 }
 
-/**
- * On boot (§2): there is no job queue to resume from, so any lecture left mid-pipeline by a
- * restart is marked failed with PIPELINE_INTERRUPTED. Returns how many were marked.
- */
 export async function failInterruptedLectures(): Promise<number> {
   const stuck = await Lecture.find({ status: { $nin: ['ready', 'failed'] } });
+
   for (const lecture of stuck) {
     const stage = asStage(lecture.status);
     const at = new Date();
+    const message = 'Processing was interrupted by a server restart. Reprocess to try again.';
+
     lecture.status = 'failed';
-    lecture.statusDetail = 'Processing was interrupted by a server restart. Reprocess to try again.';
-    lecture.error = { stage, code: 'PIPELINE_INTERRUPTED', message: 'The server restarted while this lecture was processing.', at };
+    lecture.statusDetail = message;
+    lecture.error = {
+      stage,
+      code: 'PIPELINE_INTERRUPTED',
+      message,
+      at,
+    };
     lecture.stages = stagesAfter(lecture.stages, 'failed', stage, at);
     await lecture.save();
   }
-  if (stuck.length) logger.warn('Marked interrupted lectures as failed', { count: stuck.length });
+
+  if (stuck.length) {
+    logger.warn('Marked interrupted lectures as failed', { count: stuck.length });
+  }
+
   return stuck.length;
+}
+
+
+function mapMediaError(error: unknown): {
+  code: 'INTERNAL_ERROR';
+  message: string;
+} {
+  return {
+    code: 'INTERNAL_ERROR',
+    message: messageOf(error),
+  };
 }
