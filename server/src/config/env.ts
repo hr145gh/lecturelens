@@ -60,6 +60,16 @@ const envSchema = z.object({
   ASSEMBLYAI_API_KEY: optional(z.string()),
   GROQ_API_KEY: optional(z.string()),
   ASR_PROVIDER: optional(z.enum(['assemblyai', 'groq'])),
+  // Member B's tuning knobs (PB.1) — STARTING VALUES to tune, not fixed rules. Unset = the module default.
+  CHUNK_SECONDS: optional(z.coerce.number().positive('must be a positive number of seconds')),
+  CHUNK_OVERLAP_SECONDS: optional(z.coerce.number().min(0, 'must be 0 or more seconds')),
+  TOPIC_SECTION_SECONDS: optional(z.coerce.number().positive('must be a positive number of seconds')),
+  TOPIC_SIM_THRESHOLD: optional(z.coerce.number().min(0).max(1, 'must be a cosine similarity between 0 and 1')),
+  TOPIC_MIN_SEC: optional(z.coerce.number().positive('must be a positive number of seconds')),
+  // Member A's keyterm experiment: pass evaluation/asr/glossary.txt to the ASR provider (PA.2).
+  ASR_USE_GLOSSARY: optional(
+    z.enum(['true', 'false'], { errorMap: () => ({ message: 'must be true or false' }) }).transform((v) => v === 'true'),
+  ),
   OPENROUTER_API_KEY: optional(z.string()),
   LLM_BASE_URL: optional(z.string().url('must be a full URL, e.g. https://api.groq.com/openai/v1')),
   LLM_MODEL: optional(z.string()),

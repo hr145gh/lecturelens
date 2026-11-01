@@ -35,6 +35,17 @@ export default defineConfig({
       JWT_EXPIRES_IN: '1h',
       STORAGE_DIR: path.join(os.tmpdir(), 'lecturelens-test-storage'),
       MAX_UPLOAD_MB: '512',
+      // Optional variables are blanked too: otherwise dotenv fills them from server/.env and tests
+      // would call real providers with real keys (empty = unset for these; see config/env.ts).
+      ASSEMBLYAI_API_KEY: '',
+      GROQ_API_KEY: '',
+      OPENROUTER_API_KEY: '',
+      ASR_PROVIDER: '',
+      ASR_USE_GLOSSARY: '',
+      LLM_BASE_URL: '',
+      LLM_MODEL: '',
+      EMBEDDING_MODEL: '',
+      LOG_LEVEL: '',
     },
     hookTimeout: 120_000, // the first run downloads the mongod binary
     coverage: {

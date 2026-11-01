@@ -8,7 +8,7 @@ import { resetRateLimits } from '../src/middleware/rateLimit.js';
 import { User, type IUser, type Role } from '../src/models/index.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 import { signToken } from '../src/modules/auth/tokens.js';
-import { notImplementedPipeline, setPipeline } from '../src/services/processing/pipeline.js';
+import { setPipeline, type ProcessingPipeline } from '../src/services/processing/pipeline.js';
 
 /**
  * Backend test harness (vitest `setupFiles`). Every test file gets a real, throwaway MongoDB:
@@ -56,7 +56,13 @@ export function buildApp(): Express {
   return createApp();
 }
 
-/** Empties every collection (indexes kept), rate limits, stored media, and restores the stub pipeline. */
+/**
+ * Default pipeline for API tests: does nothing, so no test spawns FFmpeg or calls an ASR provider
+ * in the background. Tests of the real pipeline install `processingPipeline` themselves.
+ */
+export const idlePipeline: ProcessingPipeline = { startProcessing: async () => undefined };
+
+/** Empties every collection (indexes kept), rate limits, stored media, and installs the idle pipeline. */
 export async function resetDb(): Promise<void> {
   const db = mongoose.connection.db;
   if (!db) throw new Error('resetDb() called before the test database connected');
@@ -65,7 +71,7 @@ export async function resetDb(): Promise<void> {
   }
   for (const collection of await db.collections()) await collection.deleteMany({});
   resetRateLimits();
-  setPipeline(notImplementedPipeline);
+  setPipeline(idlePipeline);
   await rm(storageRoot, { recursive: true, force: true });
 }
 

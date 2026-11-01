@@ -109,7 +109,7 @@ const TEACHER_ONLY: Array<[string, Call]> = [
   ['approve or reject a question', { method: 'patch', path: () => `/questions/${ID}`, body: { status: 'approved' } }],
 ];
 
-/* Teacher-only routes that remain stubbed: a teacher passes the guards → 501. */
+/* Teacher-only routes that are implemented (D, A, and B's PB.1/PB.2); every other one is still a 501 stub. */
 const LIVE_LECTURE_ROUTES = [
   'upload',
   'read processing status',
@@ -118,7 +118,11 @@ const LIVE_LECTURE_ROUTES = [
   'patch a transcript segment',
   'approve a transcript',
 ];
-const TEACHER_ONLY_STUBS = TEACHER_ONLY.filter(([cell]) => !LIVE_LECTURE_ROUTES.includes(cell));
+const LIVE_REVIEW_ROUTES = ['edit a topic', 'approve a topic', 'approve a summary']; // Member B
+const TEACHER_ONLY_STUBS = TEACHER_ONLY.filter(
+  ([cell]) => !LIVE_LECTURE_ROUTES.includes(cell) && !LIVE_REVIEW_ROUTES.includes(cell),
+);
+const TEACHER_ONLY_LIVE_REVIEW = TEACHER_ONLY.filter(([cell]) => LIVE_REVIEW_ROUTES.includes(cell));
 
 describe('student', () => {
   it('reads lectures whose status is ready AND transcriptApproved (list)', async () => {
@@ -206,6 +210,14 @@ describe('teacher', () => {
   it.each(TEACHER_ONLY_STUBS)('may %s (passes the guards → 501 until built)', async (_cell, call) => {
     const res = await send(call, as(owner)).expect(501);
     expect(res.body.error.code).toBe('NOT_IMPLEMENTED');
+  });
+
+  // Member B's live review routes: the role check lets a teacher through (the ids here are made up,
+  // so the handler answers 404 — what matters is that it is never 401/403 for a teacher).
+  it.each(TEACHER_ONLY_LIVE_REVIEW)('may %s (passes the guards; handler reached)', async (_cell, call) => {
+    const res = await send(call, as(owner));
+    expect([401, 403]).not.toContain(res.status);
+    expect(res.status).toBeLessThan(500);
   });
 
   describe("another teacher's lecture → 404, existence not revealed", () => {

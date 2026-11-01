@@ -23,6 +23,10 @@ export interface ISummary extends ReviewFields {
   /** Must lie inside the parent topic section (validated by the service). */
   evidence: Evidence[];
   reviewNote: string | null;
+  /** 0–1: share of summary sentences supported by the section text (faithfulness check). null = not checked. */
+  faithfulnessScore: number | null;
+  /** Summary sentences the faithfulness check could not support from the section text. */
+  unsupportedSentences: string[];
   model: string;
   promptVersion: string;
   createdAt: Date;
@@ -41,6 +45,8 @@ const summarySchema = new Schema<ISummary, SummaryModel, object, ApprovalQueryHe
     evidence: { type: [evidenceSchema], validate: lengthBetween(1, 3) },
     ...reviewFields,
     reviewNote: { type: String, default: null },
+    faithfulnessScore: { type: Number, min: 0, max: 1, default: null },
+    unsupportedSentences: { type: [String], default: [] },
     model: { type: String, required: true },
     promptVersion: { type: String, required: true },
   },

@@ -29,6 +29,8 @@
       "status": "approved",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 1,
+      "unsupportedSentences": [],
       "reviewedBy": "6650c3a0c3b2e41d8a000001",
       "reviewedAt": "2026-10-21T09:10:40.200Z",
       "model": "llama-3.3-70b-versatile",
@@ -64,6 +66,10 @@
       "status": "approved",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 0.667,
+      "unsupportedSentences": [
+        "On L(w) = w² starting from w = 1, η = 0.1 converges smoothly, η = 0.9 oscillates but converges, and η = 1.1 diverges; a very small η converges slowly and can stall on plateaus."
+      ],
       "reviewedBy": "6650c3a0c3b2e41d8a000001",
       "reviewedAt": "2026-10-21T09:11:41.201Z",
       "model": "llama-3.3-70b-versatile",
@@ -99,6 +105,10 @@
       "status": "approved",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 0.667,
+      "unsupportedSentences": [
+        "Mini-batches of 32–512 examples reduce variance and parallelise well on GPUs."
+      ],
       "reviewedBy": "6650c3a0c3b2e41d8a000001",
       "reviewedAt": "2026-10-21T09:12:42.202Z",
       "model": "llama-3.3-70b-versatile",
@@ -134,6 +144,10 @@
       "status": "pending_review",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 0.667,
+      "unsupportedSentences": [
+        "Add gates distribute, multiply gates swap, max gates route, and gradients from multiple branches are summed."
+      ],
       "reviewedBy": null,
       "reviewedAt": null,
       "model": "llama-3.3-70b-versatile",
@@ -169,6 +183,8 @@
       "status": "pending_review",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 1,
+      "unsupportedSentences": [],
       "reviewedBy": null,
       "reviewedAt": null,
       "model": "llama-3.3-70b-versatile",

@@ -36,13 +36,10 @@ interface Stub {
 }
 
 const STUBS: Stub[] = [
-  { method: 'get', path: `/lectures/${L}/topics`, owner: 'B', prompt: 'PB.1', feature: 'Topic sections', teacherOnly: false },
-  { method: 'patch', path: `/topics/${ID}`, body: { label: 'Gradient descent' }, owner: 'B', prompt: 'PB.1', feature: 'Topic editing', teacherOnly: true },
-  { method: 'post', path: `/topics/${ID}/approve`, owner: 'B', prompt: 'PB.1', feature: 'Topic approval', teacherOnly: true },
+  // Live since Member B's PB.1/PB.2 (not stubs any more): GET /lectures/:id/topics, PATCH /topics/:id,
+  // POST /topics/:id/approve, GET /lectures/:id/summaries, POST /summaries/:id/approve — see rbac.test.ts.
   { method: 'post', path: `/topics/${ID}/reject`, body: { rejectionReason: 'AMBIGUOUS', reviewNote: null }, owner: 'B', prompt: 'PB.1', feature: 'Topic rejection', teacherOnly: true },
-  { method: 'get', path: `/lectures/${L}/summaries`, owner: 'B', prompt: 'PB.2', feature: 'Section summaries', teacherOnly: false },
   { method: 'patch', path: `/summaries/${ID}`, body: { keyPoints: ['One.', 'Two.'] }, owner: 'B', prompt: 'PB.2', feature: 'Summary editing', teacherOnly: true },
-  { method: 'post', path: `/summaries/${ID}/approve`, owner: 'B', prompt: 'PB.2', feature: 'Summary approval', teacherOnly: true },
   { method: 'post', path: `/summaries/${ID}/reject`, body: { rejectionReason: 'UNSUPPORTED' }, owner: 'B', prompt: 'PB.2', feature: 'Summary rejection', teacherOnly: true },
   { method: 'post', path: '/search', body: { query: 'learning rate too big', lectureId: L, topK: 5 }, owner: 'C', prompt: 'PC.1', feature: 'Semantic search', teacherOnly: false },
   { method: 'post', path: '/ask', body: { question: 'Why does the loss blow up?' }, owner: 'C', prompt: 'PC.2', feature: 'Grounded Q&A', teacherOnly: false },
@@ -88,8 +85,16 @@ describe('A/B/C stub routes', () => {
     },
   );
 
+  // By path, not array position: the list shrinks as owners replace stubs.
+  const stubAt = (method: Stub['method'], suffix: string) => {
+    const found = STUBS.find((s) => s.method === method && s.path.split('?')[0]!.endsWith(suffix));
+    if (!found) throw new Error(`no stub ${method} …${suffix}`);
+    return found;
+  };
   it.each([
-    ['POST /lectures/:id/questions/generate', STUBS[10]!],
+    ['POST /lectures/:id/questions/generate', stubAt('post', '/questions/generate')],
+    ['PATCH /questions/:id', stubAt('patch', `/questions/${ID}`)],
+    ['POST /topics/:id/reject', stubAt('post', `/topics/${ID}/reject`)],
   ])('%s with a student token → 403 FORBIDDEN', async (_name, stub) => {
     const res = await call(stub, student).expect(403);
     expect(res.body.error.code).toBe('FORBIDDEN');
