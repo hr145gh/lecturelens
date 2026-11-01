@@ -36,11 +36,15 @@ describe('VITE_USE_MOCKS', () => {
     expect(parseMockFlag('qa', 'none').size).toBe(1);
   });
 
-  it('unset in development: auth and lectures use the real API, so registered accounts are saved', () => {
+  it('unset in development: every domain the server implements uses the real API', () => {
+    // Regression: transcript/topics/summaries stayed mocked after their routes landed, so a lecture
+    // processed by the real pipeline showed "No transcript for this lecture — Lecture not found."
     const services = selectServices(parseMockFlag(undefined, DEV_DEFAULT_MOCKS));
-    expect(services.auth).toBe(httpServices.auth);
-    expect(services.lectures).toBe(httpServices.lectures);
-    for (const domain of ['transcript', 'topics', 'summaries', 'search', 'qa', 'quizzes', 'revision'] as const) {
+    for (const domain of ['auth', 'lectures', 'transcript', 'topics', 'summaries'] as const) {
+      expect(services[domain]).toBe(httpServices[domain]);
+    }
+    // Only Member C's domains (still 501 on the server) are mocked.
+    for (const domain of ['search', 'qa', 'quizzes', 'revision'] as const) {
       expect(services[domain]).toBe(mockServices[domain]);
     }
   });

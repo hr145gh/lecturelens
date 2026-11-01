@@ -1,0 +1,2 @@
+# Audio cut from a real lecture recording: regenerate with make-clips.ts, never commit.
+clips/*.wav

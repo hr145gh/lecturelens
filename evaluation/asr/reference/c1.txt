@@ -1,0 +1,8 @@
+# Reference transcript for clip c1: source 0.00–119.56 s (119.6 s), file clips/c1.wav.
+# NOT TYPED YET. Type exactly what is said, verbatim, by listening (not from ASR output):
+#  - every word as spoken, including repetitions and false starts you can make out;
+#  - Hindi words in Devanagari, English words in Latin script, as spoken (the speaker code-mixes;
+#    this is the convention Whisper uses, so script differences are not counted as errors);
+#  - numbers either as digits or words (both normalise the same);
+#  - no speaker labels or timestamps; [inaudible] for anything you cannot make out.
+# Lines starting with # are ignored. evaluate.ts skips this clip until there is text below.

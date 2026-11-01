@@ -1,10 +1,21 @@
+import { normaliseText, wordTokens } from './text.js';
+
+/**
+ * Evidence linking: turn the model's quotes into { chunkId, startSec, endSec, quote } items the UI
+ * shows as clickable timestamp chips. A quote is located in ONE of the section's segments:
+ *  1. exact match on normalised text (lowercase, collapsed whitespace) → stored verbatim from the segment;
+ *  2. otherwise the segment sharing the longest run of consecutive words with the quote, and the stored
+ *     quote is SHORTENED to exactly that run (still verbatim transcript text) — if the run is long enough.
+ * Anything that cannot be located is DISCARDED: we never emit a timestamp we cannot justify.
+ * Timing is the containing segment's span; chunkId is a chunk covering that segment whose text holds the quote.
+ */
+
 export interface EvidenceSegment {
   id?: unknown;
   index: number;
   startSec: number;
   endSec: number;
   text: string;
-  chunkId?: unknown;
 }
 
 export interface EvidenceChunk {
@@ -22,110 +33,101 @@ export interface LinkedEvidence {
   quote: string;
 }
 
-export function normaliseText(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+export { normaliseText };
+
+/** A fuzzy match must keep at least this many consecutive words, and at least this share of the quote. */
+export const MIN_MATCH_WORDS = 4;
+export const MIN_MATCH_SHARE = 0.5;
+const MAX_QUOTE = 300;
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Word tokens of `text` with their character spans, so a token run maps back to verbatim text. */
+function spannedTokens(text: string): Array<{ token: string; start: number; end: number }> {
+  const out: Array<{ token: string; start: number; end: number }> = [];
+  const re = /[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:['’-][\p{L}\p{M}\p{N}]+)*/gu;
+  for (let m = re.exec(text); m; m = re.exec(text)) out.push({ token: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length });
+  return out;
 }
 
-function overlapScore(a: string, b: string): number {
-  const left = new Set(normaliseText(a).split(/[^a-z0-9]+/).filter((word) => word.length > 1));
-  const right = new Set(normaliseText(b).split(/[^a-z0-9]+/).filter((word) => word.length > 1));
-  if (left.size === 0 || right.size === 0) return 0;
-  let overlap = 0;
-  for (const word of left) if (right.has(word)) overlap += 1;
-  return overlap / Math.sqrt(left.size * right.size);
+/** Longest run of consecutive words shared by quote and segment → the verbatim segment substring. */
+export function longestSharedRun(quote: string, segmentText: string): { text: string; words: number } {
+  const q = wordTokens(quote);
+  const s = spannedTokens(segmentText);
+  let best = { end: -1, len: 0 };
+  let prev = new Array<number>(q.length + 1).fill(0);
+  for (let i = 1; i <= s.length; i++) {
+    const cur = new Array<number>(q.length + 1).fill(0);
+    for (let j = 1; j <= q.length; j++) {
+      if (s[i - 1]!.token === q[j - 1]) {
+        cur[j] = prev[j - 1]! + 1;
+        if (cur[j]! > best.len) best = { end: i - 1, len: cur[j]! };
+      }
+    }
+    prev = cur;
+  }
+  if (best.len === 0) return { text: '', words: 0 };
+  const from = s[best.end - best.len + 1]!.start;
+  const to = s[best.end]!.end;
+  return { text: segmentText.slice(from, to), words: best.len };
 }
 
-function longestMatchedWords(quote: string, segmentText: string): string {
-  const quoteWords: string[] =
-    normaliseText(quote).match(/[a-z0-9]+(?:['-][a-z0-9]+)?/g) ?? [];
-  const originalWords = segmentText.match(/\S+/g) ?? [];
-  if (quoteWords.length === 0 || originalWords.length === 0) return '';
-  const normalisedOriginal = originalWords.map((word) => normaliseText(word).replace(/[^a-z0-9'-]/g, ''));
-  let bestStart = 0;
-  let bestLength = 0;
-  for (let start = 0; start < normalisedOriginal.length; start += 1) {
-    for (let length = 1; start + length <= normalisedOriginal.length; length += 1) {
-      const candidate = new Set(normalisedOriginal.slice(start, start + length));
-      let matched = 0;
-      for (const word of quoteWords) if (candidate.has(word.replace(/[^a-z0-9'-]/g, ''))) matched += 1;
-      const overlap = matched / Math.sqrt(candidate.size * quoteWords.length);
-      if (length > 1 && overlap === 1 && length > bestLength) {
-        bestStart = start;
-        bestLength = length;
-      }
-    }
-  }
-  if (bestLength === 0) {
-    let bestWordStart = 0;
-    let bestWordScore = 0;
-    for (let index = 0; index < normalisedOriginal.length; index += 1) {
-      if (quoteWords.includes(normalisedOriginal[index]!)) {
-        const score = normalisedOriginal[index]!.length;
-        if (score > bestWordScore) {
-          bestWordScore = score;
-          bestWordStart = index;
-        }
-      }
-    }
-    return originalWords.slice(bestWordStart, bestWordStart + 1).join(' ');
-  }
-  return originalWords.slice(bestStart, bestStart + bestLength).join(' ').slice(0, 300);
+/** Exact (normalised) occurrence of `quote` in `segmentText`, returned as the segment's own characters. */
+function exactMatch(quote: string, segmentText: string): string | null {
+  const wanted = normaliseText(quote);
+  if (!wanted || !normaliseText(segmentText).includes(wanted)) return null;
+  const pattern = wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
+  return segmentText.match(new RegExp(pattern, 'iu'))?.[0] ?? null;
 }
 
 export function linkEvidence(
   quotes: readonly string[],
   segments: readonly EvidenceSegment[],
   chunks: readonly EvidenceChunk[] = [],
+  max = 3,
 ): LinkedEvidence[] {
+  const ordered = [...segments].sort((a, b) => a.index - b.index);
   const evidence: LinkedEvidence[] = [];
-  const orderedSegments = [...segments].sort((a, b) => a.index - b.index);
 
-  for (const quote of quotes) {
-    const normalisedQuote = normaliseText(quote);
-    let matchedSegment: EvidenceSegment | undefined;
-    let matchedQuote = '';
-    let bestScore = -1;
+  for (const raw of quotes) {
+    const quote = raw.trim();
+    if (!quote) continue;
 
-    for (const segment of orderedSegments) {
-      const normalisedSegment = normaliseText(segment.text);
-      if (normalisedSegment.includes(normalisedQuote)) {
-        matchedSegment = segment;
-        const quotePattern = normalisedQuote
-          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          .replace(/\s+/g, '\\s+');
-        const direct = segment.text.match(new RegExp(quotePattern, 'i'));
-        matchedQuote = direct?.[0]?.slice(0, 300) ?? quote.trim().slice(0, 300);
+    let segment: EvidenceSegment | undefined;
+    let matched: string | null = null;
+    for (const s of ordered) {
+      matched = exactMatch(quote, s.text);
+      if (matched) {
+        segment = s;
         break;
       }
     }
-
-    if (!matchedSegment) {
-      for (const segment of orderedSegments) {
-        const score = overlapScore(normalisedQuote, segment.text);
-        if (score > bestScore) {
-          bestScore = score;
-          matchedSegment = segment;
-        }
+    if (!segment) {
+      const quoteWords = wordTokens(quote).length;
+      let best = { words: 0, text: '', seg: undefined as EvidenceSegment | undefined };
+      for (const s of ordered) {
+        const run = longestSharedRun(quote, s.text);
+        if (run.words > best.words) best = { ...run, seg: s };
       }
-      if (matchedSegment && bestScore > 0) matchedQuote = longestMatchedWords(normalisedQuote, matchedSegment.text);
+      if (best.seg && best.words >= MIN_MATCH_WORDS && best.words >= quoteWords * MIN_MATCH_SHARE) {
+        segment = best.seg;
+        matched = best.text;
+      }
     }
+    if (!segment || !matched) continue; // cannot justify a timestamp: discard
 
-    if (!matchedSegment || !matchedQuote) continue;
-    const chunk = chunks.find((candidate) =>
-      matchedSegment!.index >= candidate.segmentStart && matchedSegment!.index <= candidate.segmentEnd,
+    // Verbatim transcript words; runs of whitespace collapsed (whitespace never decides a match).
+    const collapse = (t: string) => t.replace(/\s+/g, ' ').trim();
+    const stored = collapse(matched).slice(0, MAX_QUOTE).trim();
+    const chunk = chunks.find(
+      (c) => segment!.index >= c.segmentStart && segment!.index <= c.segmentEnd && collapse(c.text).includes(stored),
     );
-    const chunkId = chunk
-      ? String(chunk.id ?? chunk._id ?? '')
-      : matchedSegment.chunkId != null ? String(matchedSegment.chunkId) : '';
-    if (!chunkId) continue;
+    const chunkId = chunk ? String(chunk.id ?? chunk._id ?? '') : '';
+    if (!chunkId) continue; // the contract ties every quote to a chunk that contains it
 
-    evidence.push({
-      chunkId,
-      startSec: Math.round(matchedSegment.startSec * 1000) / 1000,
-      endSec: Math.round(matchedSegment.endSec * 1000) / 1000,
-      quote: matchedQuote.slice(0, 300),
-    });
+    const startSec = round3(segment.startSec);
+    if (evidence.some((e) => e.startSec === startSec && e.quote === stored)) continue; // same evidence twice
+    evidence.push({ chunkId, startSec, endSec: round3(segment.endSec), quote: stored });
+    if (evidence.length === max) break;
   }
-
-  return evidence.slice(0, 3);
+  return evidence;
 }

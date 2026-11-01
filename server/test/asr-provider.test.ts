@@ -31,6 +31,9 @@ const successResult = {
     { startSec: 0, endSec: 1, text: 'hello', confidence: 0.9 },
   ],
   modelVersion: 'test-model',
+  provider: 'assemblyai',
+  model: 'test-model',
+  externalId: null,
   rawResponse: {},
 };
 
@@ -82,15 +85,18 @@ describe('ASR provider selection and fallback', () => {
     expect(groqTranscribe).toHaveBeenCalledOnce();
   });
 
-  it('throws AggregateError when both providers fail', async () => {
-    assemblyTranscribe.mockRejectedValueOnce(
-      new Error('AssemblyAI unavailable'),
-    );
-    groqTranscribe.mockRejectedValueOnce(new Error('Groq unavailable'));
+  it('throws AsrUnavailableError (an AggregateError keeping both causes) when both providers fail', async () => {
+    const primary = new Error('AssemblyAI unavailable');
+    const fallback = new Error('Groq unavailable');
+    assemblyTranscribe.mockRejectedValueOnce(primary);
+    groqTranscribe.mockRejectedValueOnce(fallback);
 
-    await expect(transcribeWithFallback('audio.wav')).rejects.toThrow(
-      'Both ASR providers failed',
-    );
+    const { AsrUnavailableError } = await import('../src/services/asr/index.js');
+    const error = await transcribeWithFallback('audio.wav').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AsrUnavailableError);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).message).toMatch(/Both speech-recognition providers failed/);
+    expect((error as AggregateError).errors).toEqual([primary, fallback]);
 
     expect(assemblyTranscribe).toHaveBeenCalledOnce();
     expect(groqTranscribe).toHaveBeenCalledOnce();

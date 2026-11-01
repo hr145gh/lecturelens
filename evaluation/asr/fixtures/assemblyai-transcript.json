@@ -1,0 +1,198 @@
+{
+  "id": "fixture-transcript-0001",
+  "status": "completed",
+  "speech_model_used": "universal-2",
+  "confidence": 0.91,
+  "audio_duration": 16,
+  "words": [
+    {
+      "text": "Okay,",
+      "start": 1234,
+      "end": 1659,
+      "confidence": 0.62,
+      "speaker": "A"
+    },
+    {
+      "text": "let's",
+      "start": 1719,
+      "end": 2144,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "get",
+      "start": 2204,
+      "end": 2579,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "started.",
+      "start": 2639,
+      "end": 3139,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "Today",
+      "start": 3199,
+      "end": 3624,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "we",
+      "start": 3684,
+      "end": 4034,
+      "confidence": 0.62,
+      "speaker": "A"
+    },
+    {
+      "text": "look",
+      "start": 4094,
+      "end": 4494,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "at",
+      "start": 4554,
+      "end": 4904,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "gradient",
+      "start": 4964,
+      "end": 5464,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "descent.",
+      "start": 5524,
+      "end": 6024,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "The",
+      "start": 6084,
+      "end": 6459,
+      "confidence": 0.62,
+      "speaker": "A"
+    },
+    {
+      "text": "loss",
+      "start": 6519,
+      "end": 6919,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "is",
+      "start": 6979,
+      "end": 7329,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "a",
+      "start": 7389,
+      "end": 7714,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "function",
+      "start": 7774,
+      "end": 8274,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "of",
+      "start": 8334,
+      "end": 8684,
+      "confidence": 0.62,
+      "speaker": "A"
+    },
+    {
+      "text": "the",
+      "start": 8744,
+      "end": 9119,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "parameters",
+      "start": 9179,
+      "end": 9729,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "theta.",
+      "start": 9789,
+      "end": 10239,
+      "confidence": 0.95,
+      "speaker": "A"
+    },
+    {
+      "text": "Is",
+      "start": 12099,
+      "end": 12419,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "it",
+      "start": 12469,
+      "end": 12789,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "convex?",
+      "start": 12839,
+      "end": 13259,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "Not",
+      "start": 13309,
+      "end": 13649,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "for",
+      "start": 13699,
+      "end": 14039,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "neural",
+      "start": 14089,
+      "end": 14489,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "networks.",
+      "start": 14539,
+      "end": 14999,
+      "confidence": 0.9,
+      "speaker": "B"
+    },
+    {
+      "text": "Right.",
+      "start": 14997,
+      "end": 15399,
+      "confidence": 0.97,
+      "speaker": "B"
+    }
+  ]
+}

@@ -24,14 +24,29 @@ export interface ChunkOptions {
 }
 
 const round3 = (value: number): number => Math.round(value * 1000) / 1000;
-const WORD_CAP = 200;
+
+/**
+ * Retrieval chunks (RAG units, invisible to users) — NOT topic sections (services/topics).
+ * Defaults are STARTING VALUES to tune (CHUNK_SECONDS / CHUNK_OVERLAP_SECONDS in config/env.ts,
+ * passed in by the pipeline), not fixed rules.
+ */
+export const CHUNK_DEFAULTS = Object.freeze({ windowSec: 60, overlapSec: 15 });
+
+/**
+ * Embedding models truncate long inputs silently (all-MiniLM-L6-v2: 256 word pieces), which
+ * causes retrieval failures that are very hard to diagnose — so chunks end early at ~200 words.
+ */
+export const WORD_CAP = 200;
 
 const wordCount = (text: string): number =>
   text.trim().length === 0 ? 0 : text.trim().split(/\s+/).length;
 
 /**
- * Starting retrieval-window values; CHUNK_SECONDS / CHUNK_OVERLAP_SECONDS tune this
- * heuristic later and are not fixed rules.
+ * Walks the segments accumulating until the window length is reached (or the next segment would
+ * pass WORD_CAP), emits a chunk, then rewinds so the next chunk starts at the last segment
+ * starting at or before (chunk end − overlapSec). Every boundary is a segment edge: a segment is
+ * never split, so the real overlap is ≥ overlapSec (snapped), or 0 when a chunk is one segment.
+ * A single segment longer than WORD_CAP still becomes its own chunk (it cannot be split).
  */
 export function buildChunks(
   segments: readonly TranscriptSegmentInput[],
@@ -39,12 +54,8 @@ export function buildChunks(
 ): ChunkOutput[] {
   if (segments.length === 0) return [];
 
-  const windowSec =
-    options.windowSec ??
-    (Number(process.env.CHUNK_SECONDS ?? 60) || 60);
-  const overlapSec =
-    options.overlapSec ??
-    (Number(process.env.CHUNK_OVERLAP_SECONDS ?? 15) || 15);
+  const windowSec = options.windowSec ?? CHUNK_DEFAULTS.windowSec;
+  const overlapSec = options.overlapSec ?? CHUNK_DEFAULTS.overlapSec;
 
   if (!Number.isFinite(windowSec) || windowSec <= 0) throw new Error('windowSec must be positive');
   if (!Number.isFinite(overlapSec) || overlapSec < 0 || overlapSec >= windowSec) {

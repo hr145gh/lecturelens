@@ -1,17 +1,21 @@
-
 import { AssemblyAI } from 'assemblyai';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { ProviderHttpError, retryAfterSeconds, withRetry } from './retry.js';
+import { groupWordsIntoSegments } from './segments.js';
 import type {
   AsrProvider,
-  AsrSegment,
   AsrTranscriptionOptions,
   AsrTranscriptionResult,
+  AsrWord,
 } from './types.js';
 import { millisecondsToSeconds } from './time.js';
 
 const POLLING_INTERVAL_MS = 2_000;
-const POLLING_TIMEOUT_MS = 5 * 60 * 1_000;
+/** At least 10 minutes, or the audio's own length if longer (universal-2 is much faster than real time). */
+const MIN_POLLING_TIMEOUT_MS = 10 * 60 * 1_000;
+export const pollingTimeoutMs = (durationSec?: number) =>
+  Math.max(MIN_POLLING_TIMEOUT_MS, Math.ceil((durationSec ?? 0) * 1_000));
 
 type AssemblyWord = {
   text: string;
@@ -31,18 +35,50 @@ type AssemblyTranscript = {
   speech_models?: string[] | null;
 };
 
+/**
+ * The SDK turns every HTTP error into a plain Error with only the response text, so a 429 cannot
+ * be told from a 400. Its services route all calls through their (protected, declared) `fetch`,
+ * built on `fetchResponse`; this wraps `fetch` so failures carry the real status instead.
+ * test/asr-retry.test.ts drives the real SDK through this and fails if a new SDK version changes it.
+ */
+export function withHttpStatusErrors(client: AssemblyAI): AssemblyAI {
+  type Service = {
+    fetch(input: string, init?: RequestInit): Promise<Response>;
+    fetchResponse(input: string, init?: RequestInit): Promise<Response>;
+  };
+  for (const service of [client.files, client.transcripts] as unknown as Array<Service | undefined>) {
+    if (!service || typeof service.fetchResponse !== 'function') continue;
+    const fetchResponse = service.fetchResponse.bind(service);
+    service.fetch = async (input, init) => {
+      const response = await fetchResponse(input, init);
+      if (response.status >= 400) {
+        const text = await response.text();
+        let detail = text.slice(0, 300);
+        try {
+          detail = (JSON.parse(text) as { error?: string }).error ?? detail;
+        } catch {
+          /* not JSON */
+        }
+        throw new ProviderHttpError('assemblyai', response.status, detail, retryAfterSeconds(response.headers));
+      }
+      return response;
+    };
+  }
+  return client;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Converts AssemblyAI word-level output to LectureLens segments.
- * AssemblyAI timestamps are milliseconds; LectureLens uses seconds.
+ * Converts AssemblyAI word-level output to LectureLens word timings.
+ * AssemblyAI timestamps are milliseconds; LectureLens uses seconds (3 decimals).
  */
 export function mapAssemblyWords(
   words: AssemblyWord[],
   transcriptConfidence?: number | null,
-): AsrSegment[] {
+): AsrWord[] {
   return words.map((word) => {
     const startSec = millisecondsToSeconds(word.start);
     const endSec = millisecondsToSeconds(word.end);
@@ -74,7 +110,8 @@ export class AssemblyAIProvider implements AsrProvider {
       throw new Error('ASSEMBLYAI_API_KEY is not configured.');
     }
 
-    const client = new AssemblyAI({ apiKey });
+    const client = withHttpStatusErrors(new AssemblyAI({ apiKey }));
+    const retryCtx = { provider: 'assemblyai' as const, lectureId: opts.lectureId };
 
     const keyterms = opts.keyterms
       ?.map((term) => term.trim())
@@ -82,18 +119,23 @@ export class AssemblyAIProvider implements AsrProvider {
 
     // universal-2 supports word_boost for custom vocabulary.
     // keyterms_prompt is intended for other model families.
-    const submitted = await client.transcripts.submit({
-      audio: audioPath,
-      speech_models: ['universal-2'],
-      speaker_labels: true,
-      ...(keyterms?.length ? { word_boost: keyterms } : {}),
-    });
+    const submitted = await withRetry(
+      () =>
+        client.transcripts.submit({
+          audio: audioPath,
+          speech_models: ['universal-2'],
+          speaker_labels: true,
+          ...(keyterms?.length ? { word_boost: keyterms } : {}),
+        }),
+      { ...retryCtx, operation: 'upload and submit' },
+    );
 
     if (!submitted.id) {
       throw new Error('AssemblyAI did not return a transcript ID.');
     }
 
-    const deadline = Date.now() + POLLING_TIMEOUT_MS;
+    const timeoutMs = pollingTimeoutMs(opts.durationSec);
+    const deadline = Date.now() + timeoutMs;
     let transcript = submitted as AssemblyTranscript;
 
     while (
@@ -102,7 +144,7 @@ export class AssemblyAIProvider implements AsrProvider {
     ) {
       if (Date.now() >= deadline) {
         throw new Error(
-          `AssemblyAI transcription timed out after ${POLLING_TIMEOUT_MS / 1000} seconds.`,
+          `AssemblyAI transcription ${submitted.id} timed out after ${timeoutMs / 1000} seconds.`,
         );
       }
 
@@ -110,13 +152,14 @@ export class AssemblyAIProvider implements AsrProvider {
 
       if (Date.now() >= deadline) {
         throw new Error(
-          `AssemblyAI transcription timed out after ${POLLING_TIMEOUT_MS / 1000} seconds.`,
+          `AssemblyAI transcription ${submitted.id} timed out after ${timeoutMs / 1000} seconds.`,
         );
       }
 
-      transcript = (await client.transcripts.get(
-        submitted.id,
-      )) as AssemblyTranscript;
+      transcript = (await withRetry(() => client.transcripts.get(submitted.id), {
+        ...retryCtx,
+        operation: `poll ${submitted.id}`,
+      })) as AssemblyTranscript;
     }
 
     if (transcript.status === 'error') {
@@ -133,15 +176,20 @@ export class AssemblyAIProvider implements AsrProvider {
       );
     }
 
-    const segments = mapAssemblyWords(words, transcript.confidence);
+    const segments = groupWordsIntoSegments(mapAssemblyWords(words, transcript.confidence));
+    const model = transcript.speech_model_used ?? 'universal-2';
 
     logger.info(
-      `ASR completed with AssemblyAI (${transcript.speech_model_used ?? 'universal-2'}); ${segments.length} word segments.`,
+      `ASR completed with AssemblyAI (${model}); ${words.length} words in ${segments.length} segments.`,
+      { externalId: transcript.id },
     );
 
     return {
       segments,
-      modelVersion: transcript.speech_model_used ?? 'universal-2',
+      modelVersion: `assemblyai-${model}`,
+      provider: 'assemblyai',
+      model,
+      externalId: transcript.id,
       rawResponse: transcript,
     };
   }

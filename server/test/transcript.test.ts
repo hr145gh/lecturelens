@@ -151,6 +151,34 @@ describe('Transcript routes', () => {
     expect(res.body.items).toHaveLength(1);
   });
 
+  it('PATCH twice with different text keeps the FIRST originalText (the ASR text) — audit trail', async () => {
+    const patch = (text: string) =>
+      request(app).patch(`/api/v1/lectures/${lectureId}/segments/0`).set(auth.teacher()).send({ text }).expect(200);
+    await patch('First correction.');
+    const second = await patch('Second correction.');
+    expect(second.body.segment).toMatchObject({ text: 'Second correction.', originalText: 'Original sentence 0', corrected: true });
+    const stored = await TranscriptSegment.findOne({ lectureId, index: 0 });
+    expect(stored?.originalText).toBe('Original sentence 0');
+  });
+
+  it('PATCH as a student → 403, and the segment is unchanged', async () => {
+    const res = await request(app)
+      .patch(`/api/v1/lectures/${lectureId}/segments/0`)
+      .set(auth.student())
+      .send({ text: 'Student edit' })
+      .expect(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+    expect((await TranscriptSegment.findOne({ lectureId, index: 0 }))?.text).toBe('Original sentence 0');
+  });
+
+  it('every transcript item carries the contract fields, including lectureId (CONTRACTS.md §6.3)', async () => {
+    const res = await request(app).get(`/api/v1/lectures/${lectureId}/transcript`).set(auth.teacher()).expect(200);
+    expect(Object.keys(res.body.items[0]).sort()).toEqual(
+      ['confidence', 'correctedAt', 'correctedBy', 'corrected', 'createdAt', 'endSec', 'id', 'index', 'lectureId', 'lowConfidence', 'modelVersion', 'originalText', 'speaker', 'startSec', 'text', 'updatedAt'].sort(),
+    );
+    expect(res.body.items[0].lectureId).toBe(String(lectureId));
+  });
+
   it('lets the owner correct a segment and preserves its original text', async () => {
     const res = await request(app)
       .patch(`/api/v1/lectures/${lectureId}/segments/0`)
@@ -211,6 +239,10 @@ describe('Transcript routes', () => {
 
     expect(first.body.lecture.transcriptApproved).toBe(true);
     expect(first.body.lecture.transcriptApprovedBy).toBe(String(ids.teacher));
+    // Serialised like every lecture (§5.3): computed fields present, server-only fields absent.
+    expect(first.body.lecture).toHaveProperty('uploadedByName');
+    expect(first.body.lecture).toHaveProperty('topicCount');
+    for (const serverOnly of ['mediaPath', 'audioPath', 'notes', 'stages', 'provider']) expect(first.body.lecture).not.toHaveProperty(serverOnly);
 
     const approvedAt = first.body.lecture.transcriptApprovedAt;
 

@@ -1,0 +1,26 @@
+{
+  "lectureId": "6650c3a0c3b2e41d8a100001",
+  "annotator": "claude-assistant",
+  "transcript": "../../mocks/transcript.json",
+  "durationSec": 1199.398,
+  "annotatedOn": "2026-11-01",
+  "caveat": "Synthetic fixture text (written for mocks/ in the contract task); its sections were designed. Annotated by reading the 45 segments, not from mocks/topics.json (which differs by one segment at two boundaries: 17 and 25).",
+  "boundaries": [
+    {
+      "afterSegmentIndex": 7,
+      "note": "recap of the loss as a function of theta / landscape → the gradient and the update rule"
+    },
+    {
+      "afterSegmentIndex": 16,
+      "note": "learning-rate examples and stopping rules → the cost of a full-batch step, motivating SGD"
+    },
+    {
+      "afterSegmentIndex": 24,
+      "note": "SGD, mini-batches, epochs, noise, learning-rate decay → backpropagation"
+    },
+    {
+      "afterSegmentIndex": 35,
+      "note": "chain rule, computational graphs, gate patterns, cost → the two-layer network worked through"
+    }
+  ]
+}

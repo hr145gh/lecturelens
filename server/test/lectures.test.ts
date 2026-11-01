@@ -1,4 +1,4 @@
-﻿import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
@@ -12,7 +12,7 @@ import { requestId } from '../src/middleware/requestId.js';
 import { mediaUpload } from '../src/middleware/upload.js';
 import { Chunk, Lecture, TranscriptSegment, User, initialStages } from '../src/models/index.js';
 import {
-  NOT_IMPLEMENTED_DETAIL,
+  processingPipeline,
   setPipeline,
   type ProcessingPipeline,
 } from '../src/services/processing/pipeline.js';
@@ -35,7 +35,7 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 /** Something every sniffing check accepts as MP3: an ID3 header. */
-const MP3 = readFileSync(path.join(process.env.TEMP ?? '', 'lecturelens-test.mp3'));
+const MP3 = Buffer.concat([Buffer.from('ID3\u0004\u0000\u0000'), Buffer.alloc(2048, 1)]);
 
 const consent = { lecturerConsent: 'true', purposeShown: 'true', processorNamed: 'true' };
 
@@ -60,7 +60,7 @@ async function waitFor<T>(read: () => Promise<T>, done: (v: T) => boolean): Prom
 /** A lecture in a given state, owned by `owner`. */
 async function lectureDoc(over: Record<string, unknown> = {}, owner = ids.teacher) {
   return Lecture.create({
-    title: 'Lecture 7 â€” Gradient Descent',
+    title: 'Lecture 7 — Gradient Descent',
     uploadedBy: owner,
     consent: { lecturerConsent: true, purposeShown: true, processorNamed: true, grantedBy: owner, grantedAt: new Date() },
     status: 'ready',
@@ -73,7 +73,7 @@ async function lectureDoc(over: Record<string, unknown> = {}, owner = ids.teache
   });
 }
 
-describe('POST /lectures â€” upload and the consent gate', () => {
+describe('POST /lectures — upload and the consent gate', () => {
   it('rejects an upload without lecturer consent with 422 and deletes the file', async () => {
     const res = await upload({ title: 'No consent', ...consent, lecturerConsent: 'false' }, { buffer: MP3, name: 'a.mp3' }).expect(422);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
@@ -118,30 +118,15 @@ describe('POST /lectures â€” upload and the consent gate', () => {
     expect(await storedEntries()).toEqual([]);
   });
 
-  it('returns 202 with status "uploaded", stores the file under STORAGE_DIR/<id>/, and the stub then fails it honestly', async () => {
-    setPipeline({
-  startProcessing: async (lectureId) => {
-    const lecture = await Lecture.findById(lectureId);
-    if (!lecture) return;
-
-    lecture.status = 'failed';
-    lecture.statusDetail = NOT_IMPLEMENTED_DETAIL;
-    lecture.error = {
-      stage: 'extracting',
-      code: 'NOT_IMPLEMENTED',
-      message: NOT_IMPLEMENTED_DETAIL,
-      at: new Date(),
-    };
-    await lecture.save();
-  },
-});
+  it('returns 202 with status "uploaded", stores the file under STORAGE_DIR/<id>/, and the real pipeline fails an undecodable file honestly', async () => {
+    setPipeline(processingPipeline); // real pipeline (needs ffmpeg/ffprobe); the bytes below are not real audio
     const res = await upload(
-      { title: 'Lecture 11 â€” Attention', courseCode: 'CS 3410', recordedOn: '2026-10-28', ...consent },
+      { title: 'Lecture 11 — Attention', courseCode: 'CS 3410', recordedOn: '2026-10-28', ...consent },
       { buffer: MP3, name: '../../etc/evil name.mp3' },
     ).expect(202);
     const { lecture } = res.body;
     expect(lecture).toMatchObject({
-      title: 'Lecture 11 â€” Attention',
+      title: 'Lecture 11 — Attention',
       status: 'uploaded',
       recordedOn: '2026-10-28',
       uploadedBy: String(ids.teacher),
@@ -157,8 +142,8 @@ describe('POST /lectures â€” upload and the consent gate', () => {
     expect(files).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\.mp3$/)]);
 
     const failed = await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
-    expect(failed?.statusDetail).toBe(NOT_IMPLEMENTED_DETAIL);
-    expect(failed?.error).toMatchObject({ stage: 'extracting', code: 'NOT_IMPLEMENTED' });
+    expect(failed?.error).toMatchObject({ stage: 'extracting', code: 'UNSUPPORTED_CODEC' });
+    expect(failed?.statusDetail).toMatch(/could not be decoded/);
   });
 
   it('translates multer LIMIT_FILE_SIZE into 413 with the configured limit', async () => {
@@ -175,7 +160,7 @@ describe('POST /lectures â€” upload and the consent gate', () => {
   });
 });
 
-describe('GET /lectures and /lectures/:id â€” visibility', () => {
+describe('GET /lectures and /lectures/:id — visibility', () => {
   beforeEach(async () => {
     await lectureDoc({ title: 'Ready and approved' });
     await lectureDoc({ title: 'Ready, transcript not approved', transcriptApproved: false });
@@ -213,23 +198,6 @@ describe('GET /lectures and /lectures/:id â€” visibility', () => {
   });
 
   it('returns { lecture, mediaUrl } and serves the media through the signed URL with Range', async () => {
-    setPipeline({
-  startProcessing: async (lectureId) => {
-    const lecture = await Lecture.findById(lectureId);
-    if (!lecture) return;
-
-    lecture.status = 'failed';
-    lecture.statusDetail = NOT_IMPLEMENTED_DETAIL;
-    lecture.error = {
-      stage: 'chunking',
-      code: 'NOT_IMPLEMENTED',
-      message: NOT_IMPLEMENTED_DETAIL,
-      at: new Date(),
-    };
-    await lecture.save();
-  },
-});
-
     const lecture = await lectureDoc({ title: 'Playable' });
     await mkdir(path.join(storageRoot, lecture.id), { recursive: true });
     await writeFile(path.join(storageRoot, lecture.id, 'a.mp3'), MP3);
@@ -284,30 +252,14 @@ describe('POST /lectures/:id/reprocess', () => {
     expect(calls).toEqual([[lecture.id, { fromStage: 'transcribing' }]]);
   });
 
-  it('with the stub pipeline, two calls both succeed and the lecture ends failed, not faked as ready', async () => {
-    setPipeline({
-  startProcessing: async (lectureId) => {
-    const lecture = await Lecture.findById(lectureId);
-    if (!lecture) return;
-
-    lecture.status = 'failed';
-    lecture.statusDetail = NOT_IMPLEMENTED_DETAIL;
-    lecture.error = {
-      stage: 'chunking',
-      code: 'NOT_IMPLEMENTED',
-      message: NOT_IMPLEMENTED_DETAIL,
-      at: new Date(),
-    };
-
-    await lecture.save();
-  },
-});
-    const lecture = await lectureDoc();
+  it('with the real pipeline, two calls both succeed and a lecture whose media is unusable ends failed, never faked as ready', async () => {
+    setPipeline(processingPipeline);
+    const lecture = await lectureDoc(); // mediaPath points at no real file
     await request(app).post(`/api/v1/lectures/${lecture.id}/reprocess`).set('Authorization', token('teacher')).expect(202);
     await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
     await request(app).post(`/api/v1/lectures/${lecture.id}/reprocess`).set('Authorization', token('teacher')).expect(202);
     const settled = await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
-    expect(settled?.error?.code).toBe('NOT_IMPLEMENTED');
+    expect(settled?.error).toMatchObject({ stage: 'extracting', code: 'UNSUPPORTED_CODEC' });
   });
 
   it('discards derived data from the restart stage on', async () => {
@@ -359,6 +311,3 @@ describe('DELETE /lectures/:id', () => {
     vi.restoreAllMocks();
   });
 });
-
-
-

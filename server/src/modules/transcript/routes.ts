@@ -9,6 +9,7 @@ import { validate } from '../../middleware/validate.js';
 import { Lecture, TranscriptSegment } from '../../models/index.js';
 import { conflict, forbidden, notFound, unauthenticated } from '../../utils/errors.js';
 import { emptyBody } from '../../utils/schemas.js';
+import { presentOne } from '../lectures/lectures.service.js';
 
 export const transcriptRouter = Router();
 
@@ -30,7 +31,7 @@ const segmentBody = z
   })
   .strict('Only "text" can be changed; timing is not editable');
 
-function viewerOf(req: { user?: { id: string; role: string } }) {
+function viewerOf(req: { user?: { id: string; role: 'student' | 'teacher' } }) {
   if (!req.user) throw unauthenticated();
   return req.user;
 }
@@ -63,9 +64,8 @@ transcriptRouter.get(
       }
     }
 
-    const segments = await TranscriptSegment.find({ lectureId: lecture._id })
-      .sort({ index: 1 })
-      .select('index startSec endSec text confidence lowConfidence speaker corrected originalText correctedBy correctedAt modelVersion createdAt updatedAt');
+    // Full documents: the segment JSON (CONTRACTS.md §6.3) includes lectureId.
+    const segments = await TranscriptSegment.find({ lectureId: lecture._id }).sort({ index: 1 });
 
     res.json({
       lectureId: lecture.id,
@@ -128,6 +128,7 @@ transcriptRouter.post(
       await lecture.save();
     }
 
-    res.json({ lecture });
+    // Serialised like every other lecture (§5.3): with uploadedByName and topicCount.
+    res.json({ lecture: await presentOne(lecture, viewer) });
   }),
 );
