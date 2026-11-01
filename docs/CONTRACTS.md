@@ -181,7 +181,7 @@ There is **no 400**. All bad-input cases, including unparseable JSON, are `422 V
 | `CONFLICT` | 409 | Duplicate email on register; illegal state transition (e.g. reprocess while processing, generate questions before `ready`). `details` names the current state, e.g. `{ "status": "transcribing" }`. |
 | `PAYLOAD_TOO_LARGE` | 413 | Upload exceeds `MAX_UPLOAD_MB`. `details: { "maxMb": 512 }` |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Upload MIME type not in the accepted list (§5.3). `details: { "mimeType": "..." }` |
-| `RATE_LIMITED` | 429 | Too many attempts from one IP: `POST /auth/login` and `POST /auth/register` each allow 10 per 15 minutes. `details: { "retryAfterSec": 412 }`, plus a `Retry-After` header. |
+| `RATE_LIMITED` | 429 | Too many attempts from one IP within 15 minutes: `POST /auth/login` allows 10 **failed** attempts (successful sign-ins never count, so signing in and out cannot lock anyone out); `POST /auth/register` allows 10 attempts. `details: { "retryAfterSec": 412 }`, plus a `Retry-After` header. |
 
 Adding a new code is a contract change.
 
@@ -225,13 +225,13 @@ Indexes: `{ email: 1 }` unique.
 | `consent.grantedAt` | Date R | server time of upload |
 | `status` | enum R | default `uploaded` |
 | `statusDetail` | string R | one human sentence about the current status; no relative times ("3 min ago") |
-| `error` | object \| null | `null` unless `status === "failed"`: `{ stage, code, message, at }` — `stage` is a stage name, `code` one of `NO_AUDIO_STREAM`, `UNSUPPORTED_CODEC`, `TRANSCRIPTION_FAILED`, `PROVIDER_UNAVAILABLE`, `PIPELINE_INTERRUPTED`, `INTERNAL_ERROR`, `NOT_IMPLEMENTED` (the placeholder pipeline, §7) |
+| `error` | object \| null | `null` unless `status === "failed"`: `{ stage, code, message, at }` — `stage` is a stage name, `code` one of `NO_AUDIO_STREAM`, `UNSUPPORTED_CODEC`, `TRANSCRIPTION_FAILED`, `PROVIDER_UNAVAILABLE`, `PIPELINE_INTERRUPTED`, `INTERNAL_ERROR`, `NOT_IMPLEMENTED` (set only by the former placeholder pipeline, so it can appear on older lectures; the current pipeline never sets it, §7) |
 | `stages` | array S* | `[{ name, state, ms, startedAt, finishedAt }]`, one per stage name in order. *Exposed only via `GET /lectures/:id/status`. |
 | `durationSec` | float \| null | from ffprobe during `extracting`; `null` before that |
 | `mediaPath` | string R S | path of original upload, relative to `STORAGE_DIR`: `<lectureId>/<uuid><ext>` (the client's filename is never used as a path) |
 | `audioPath` | string \| null S | extracted mono audio, relative to `STORAGE_DIR` |
 | `media` | object R | `{ originalFilename, mimeType, sizeBytes }` |
-| `provider` | object R S | `{ asr, asrModel, externalId }` — ASR provider name, model and job id for the transcript; each `null` until `transcribing` starts |
+| `provider` | object R S | `{ asr, asrModel, externalId }` — ASR provider (`assemblyai` \| `groq`), bare model id (e.g. `universal-2`) and the provider's job id (AssemblyAI transcript id; `null` for Groq); each `null` until a transcript is stored. The full raw provider response is kept beside the media at `STORAGE_DIR/<lectureId>/asr-response.json`, not in the document |
 | `transcriptApproved` | boolean R | default `false`; set by `POST /lectures/:id/transcript/approve`; reset to `false` by reprocess from `extracting`/`transcribing` |
 | `transcriptApprovedBy` | ObjectId \| null | |
 | `transcriptApprovedAt` | Date \| null | |
@@ -257,14 +257,18 @@ One ASR utterance. Immutable timing; only `text` may be corrected.
 | `originalText` | string \| null | `null` until the first edit. **Set ONCE on the first edit to the ASR text and never overwritten** — this is the audit trail. |
 | `correctedBy` | ObjectId \| null | last editor |
 | `correctedAt` | Date \| null | last edit time |
-| `modelVersion` | string R | ASR model id, e.g. `"assemblyai-universal-2"` |
+| `modelVersion` | string R | `<provider>-<model>`: `"assemblyai-universal-2"` or `"groq-whisper-large-v3-turbo"`. Segments are utterances built from the provider's word timings (new segment on a speaker change, a pause > 1.2 s, a sentence end after ≥ 6 s, or at 30 s); `confidence` is the mean of the words' |
 
 Indexes: `{ lectureId: 1, index: 1 }` unique; `{ lectureId: 1, lowConfidence: 1 }`.
 
 ### 4.4 `chunks`
 
-Retrieval unit: consecutive whole segments (never split a segment), no overlap,
-~60–90 s each. Fixtures use 3 segments per chunk.
+Retrieval unit (for RAG; never shown to users — not a topic section): consecutive whole segments
+(never split a segment), ~60 s windows that **overlap** by ~15 s, every boundary snapped to a segment
+edge, cut early at ~200 words so the embedding model never truncates a chunk. Window and overlap
+are starting values to tune (`CHUNK_SECONDS`, `CHUNK_OVERLAP_SECONDS`). Because chunks overlap, a
+segment can belong to two chunks. The fixtures (`mocks/chunks.json`) are a simpler non-overlapping
+example of 3 segments per chunk.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -328,8 +332,10 @@ One summary per topic section.
 | `status` | enum R | **default `pending_review`** |
 | `rejectionReason` | enum \| null | required iff `rejected` |
 | `reviewNote` | string \| null | teacher's free-text note |
+| `faithfulnessScore` | float \| null | 0–1, share of summary sentences whose content words are supported by the section text (token-overlap check, `services/summaries/faithfulness.ts`); `null` if not checked. Shown to the reviewing teacher |
+| `unsupportedSentences` | string[] R | summary sentences that check flagged (`[]` when none) — a review aid, not proof of error |
 | `reviewedBy`, `reviewedAt` | ObjectId/Date \| null | |
-| `model`, `promptVersion` | string R | e.g. `"llama-3.3-70b-versatile"`, `"summary-v1"` |
+| `model`, `promptVersion` | string R | the LLM id (`LLM_MODEL`, default `"openai/gpt-oss-120b"`; the fixtures were recorded as `"llama-3.3-70b-versatile"`) or `"extractive-tfidf"` for the fallback; e.g. `"summary-v2"` |
 
 **Evidence object** (used by summaries and questions; citations extend it):
 
@@ -495,7 +501,8 @@ lists use `{ items, ... }` as in §1.4.
   `409 CONFLICT`.
 - `POST /auth/login` body `{ email, password }` → `200 { user, token }`. Wrong email *or* password →
   `401 UNAUTHENTICATED` with the same message, `"Invalid email or password"` (do not reveal which).
-- Both are rate-limited per IP (10 per 15 minutes each) → `429 RATE_LIMITED`.
+- Rate-limited per IP per 15 minutes → `429 RATE_LIMITED`: login after 10 failed attempts (successes do
+  not count), register after 10 attempts.
 - `PATCH /users/me` body `{ name }` only; any other field → `422` with `{ "body": "Only \"name\" can be changed" }`.
   Password change is not in v1.
 - `user` object: `{ id, email, name, role, lastLoginAt, createdAt, updatedAt }`.
@@ -800,6 +807,8 @@ L2 norm 1. It is never sent to clients.
   "status": "approved",
   "rejectionReason": null,
   "reviewNote": null,
+  "faithfulnessScore": 0.667,
+  "unsupportedSentences": ["On L(w) = w² starting from w = 1, η = 0.1 converges smoothly, η = 0.9 oscillates but converges, and η = 1.1 diverges; a very small η converges slowly and can stall on plateaus."],
   "reviewedBy": "6650c3a0c3b2e41d8a000001",
   "reviewedAt": "2026-10-21T09:11:41.201Z",
   "model": "llama-3.3-70b-versatile",
@@ -1041,10 +1050,13 @@ This is the student's 3rd attempt; `mocks/revision.json` is generated from attem
 - Stubs are mounted with their **real** guards and validation (`server/src/modules/<name>/routes.ts`),
   so a request is authenticated, role-checked and validated (`401`/`403`/`404`/`422`) before the
   `501`. Owners replace the handler body only.
-- The processing pipeline (`server/src/services/processing/pipeline.ts`, interface by D, implementation
-  by A) is a placeholder until Member A's PA.1/PA.2: it marks each new or reprocessed lecture
-  `failed` with `statusDetail` "Transcription pipeline not yet implemented (Member A, prompt PA.1)"
-  and `error.code: "NOT_IMPLEMENTED"`. Uploads therefore work end to end without faking success.
+- The processing pipeline (`server/src/services/processing/pipeline.ts`; interface by D) runs every
+  stage in §2 order: `extracting` and `transcribing` (A), `chunking`, `segmenting` and `summarising`
+  (B). Until Member C provides embeddings, segmenting uses `fixed_window` and the `indexing` stage is
+  **skipped**: the lecture becomes `ready` with `statusDetail` saying search indexing is not available
+  yet, so nothing is faked. Failures set `failed` with a §4.2 `error.code`: `NO_AUDIO_STREAM`,
+  `UNSUPPORTED_CODEC`, `PROVIDER_UNAVAILABLE` (both ASR providers failed or none configured),
+  `TRANSCRIPTION_FAILED` (provider output unusable), `INTERNAL_ERROR`.
 - **Returning fabricated success data from a server route is forbidden** — no hard-coded
   lectures, no canned answers, no `200` with empty placeholder objects. The client handles
   `501` by showing a "coming soon" state. Fixtures in `mocks/` are for client development and

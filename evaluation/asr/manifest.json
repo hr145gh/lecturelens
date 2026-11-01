@@ -1,0 +1,77 @@
+{
+  "description": "LectureLens ASR evaluation set (PA.2). ~10 minutes of audio from one real lecture recording (third-party; see sourceRecording.note).",
+  "sourceRecording": {
+    "path": "storage/6ae23406ee31a3a75389890a/2700e367-8e4c-4499-a494-5b78a9c99e85.mp4",
+    "md5": "1cf7e41f9479bd496f5ba64efc3b26cb",
+    "durationSec": 582.025,
+    "note": "A publicly available third-party lecture video (Gate Smashers: UML class diagrams), spoken in Hindi–English code-mixed speech, uploaded to a local LectureLens instance for testing. It is NOT one of the course's lectures and we have no consent from its lecturer beyond public availability: the audio is never committed or redistributed (clips/ is git-ignored). Identified by its opening line during the first real Groq run; earlier versions of this file wrongly called it a course lecture."
+  },
+  "conditions": {
+    "clean": "as recorded",
+    "noisy": "as recorded + synthetic pink noise at the stated SNR",
+    "accented": "NONE YET — needs a recording of a speaker with a different accent; add one before reporting an accent comparison"
+  },
+  "clips": [
+    {
+      "id": "c1",
+      "clip": "clips/c1.wav",
+      "reference": "reference/c1.txt",
+      "condition": "clean",
+      "source": {
+        "startSec": 0.0,
+        "endSec": 119.56
+      },
+      "notes": "Cut at a measured pause (ffmpeg silencedetect, -28 dB, 0.2 s). Condition is provisional: relabel if the typist hears background noise or music."
+    },
+    {
+      "id": "c2",
+      "clip": "clips/c2.wav",
+      "reference": "reference/c2.txt",
+      "condition": "clean",
+      "source": {
+        "startSec": 119.56,
+        "endSec": 244.9
+      },
+      "notes": "Cut at a measured pause (ffmpeg silencedetect, -28 dB, 0.2 s). Condition is provisional: relabel if the typist hears background noise or music."
+    },
+    {
+      "id": "c3",
+      "clip": "clips/c3.wav",
+      "reference": "reference/c3.txt",
+      "condition": "clean",
+      "source": {
+        "startSec": 244.9,
+        "endSec": 367.69
+      },
+      "notes": "Cut at a measured pause (ffmpeg silencedetect, -28 dB, 0.2 s). Condition is provisional: relabel if the typist hears background noise or music."
+    },
+    {
+      "id": "c4",
+      "clip": "clips/c4.wav",
+      "reference": "reference/c4.txt",
+      "condition": "clean",
+      "source": {
+        "startSec": 367.69,
+        "endSec": 484.5
+      },
+      "notes": "Cut at a measured pause (ffmpeg silencedetect, -28 dB, 0.2 s). Condition is provisional: relabel if the typist hears background noise or music."
+    },
+    {
+      "id": "c1-noisy",
+      "clip": "clips/c1-noisy.wav",
+      "reference": "reference/c1.txt",
+      "condition": "noisy",
+      "source": {
+        "startSec": 0.0,
+        "endSec": 119.56
+      },
+      "noise": {
+        "type": "pink",
+        "snrDb": 10,
+        "seed": 42
+      },
+      "notes": "c1 with synthetic pink noise mixed in at 10 dB SNR (make-clips.ts). Same speech, same reference as c1."
+    }
+  ],
+  "language": "Hindi–English code-mixed; references follow Whisper's convention: Hindi words in Devanagari, English words in Latin script"
+}

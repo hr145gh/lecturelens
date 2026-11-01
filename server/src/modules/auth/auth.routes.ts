@@ -31,7 +31,8 @@ authRouter.post(
 
 authRouter.post(
   '/login',
-  rateLimit({ windowMs: FIFTEEN_MINUTES, max: 10 }),
+  // Failed attempts only: 10 wrong passwords per IP per 15 min, while normal sign-in/out never locks anyone out.
+  rateLimit({ windowMs: FIFTEEN_MINUTES, max: 10, onlyFailures: true }),
   validate({ body: loginBody }),
   asyncHandler(async (req, res) => {
     const { user, token } = await auth.login(loginBody.parse(req.body));

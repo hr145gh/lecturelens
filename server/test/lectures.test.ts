@@ -12,7 +12,7 @@ import { requestId } from '../src/middleware/requestId.js';
 import { mediaUpload } from '../src/middleware/upload.js';
 import { Chunk, Lecture, TranscriptSegment, User, initialStages } from '../src/models/index.js';
 import {
-  NOT_IMPLEMENTED_DETAIL,
+  processingPipeline,
   setPipeline,
   type ProcessingPipeline,
 } from '../src/services/processing/pipeline.js';
@@ -118,7 +118,8 @@ describe('POST /lectures — upload and the consent gate', () => {
     expect(await storedEntries()).toEqual([]);
   });
 
-  it('returns 202 with status "uploaded", stores the file under STORAGE_DIR/<id>/, and the stub then fails it honestly', async () => {
+  it('returns 202 with status "uploaded", stores the file under STORAGE_DIR/<id>/, and the real pipeline fails an undecodable file honestly', async () => {
+    setPipeline(processingPipeline); // real pipeline (needs ffmpeg/ffprobe); the bytes below are not real audio
     const res = await upload(
       { title: 'Lecture 11 — Attention', courseCode: 'CS 3410', recordedOn: '2026-10-28', ...consent },
       { buffer: MP3, name: '../../etc/evil name.mp3' },
@@ -141,8 +142,8 @@ describe('POST /lectures — upload and the consent gate', () => {
     expect(files).toEqual([expect.stringMatching(/^[0-9a-f-]{36}\.mp3$/)]);
 
     const failed = await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
-    expect(failed?.statusDetail).toBe(NOT_IMPLEMENTED_DETAIL);
-    expect(failed?.error).toMatchObject({ stage: 'extracting', code: 'NOT_IMPLEMENTED' });
+    expect(failed?.error).toMatchObject({ stage: 'extracting', code: 'UNSUPPORTED_CODEC' });
+    expect(failed?.statusDetail).toMatch(/could not be decoded/);
   });
 
   it('translates multer LIMIT_FILE_SIZE into 413 with the configured limit', async () => {
@@ -251,13 +252,14 @@ describe('POST /lectures/:id/reprocess', () => {
     expect(calls).toEqual([[lecture.id, { fromStage: 'transcribing' }]]);
   });
 
-  it('with the stub pipeline, two calls both succeed and the lecture ends failed, not faked as ready', async () => {
-    const lecture = await lectureDoc();
+  it('with the real pipeline, two calls both succeed and a lecture whose media is unusable ends failed, never faked as ready', async () => {
+    setPipeline(processingPipeline);
+    const lecture = await lectureDoc(); // mediaPath points at no real file
     await request(app).post(`/api/v1/lectures/${lecture.id}/reprocess`).set('Authorization', token('teacher')).expect(202);
     await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
     await request(app).post(`/api/v1/lectures/${lecture.id}/reprocess`).set('Authorization', token('teacher')).expect(202);
     const settled = await waitFor(() => Lecture.findById(lecture.id), (l) => l?.status === 'failed');
-    expect(settled?.error?.code).toBe('NOT_IMPLEMENTED');
+    expect(settled?.error).toMatchObject({ stage: 'extracting', code: 'UNSUPPORTED_CODEC' });
   });
 
   it('discards derived data from the restart stage on', async () => {

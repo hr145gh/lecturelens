@@ -1,0 +1,5 @@
+method,lecture,annotator,segments,reference,predicted,tolerance,precision,recall,f1,windowDiff,k
+fixed_window,gate-smashers-uml-class-diagram,claude-assistant,23,1 4 7 11 14 19,11,1,1,0.167,0.286,0.476,2
+embedding_similarity,gate-smashers-uml-class-diagram,claude-assistant,23,1 4 7 11 14 19,not run,1,n/a,n/a,n/a,n/a,n/a
+fixed_window,6650c3a0c3b2e41d8a100001,claude-assistant,45,7 16 24 35,11 22 33,1,0,0,0,0.525,5
+embedding_similarity,6650c3a0c3b2e41d8a100001,claude-assistant,45,7 16 24 35,not run,1,n/a,n/a,n/a,n/a,n/a

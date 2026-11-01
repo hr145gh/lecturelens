@@ -1,0 +1,33 @@
+{
+  "lectureId": "gate-smashers-uml-class-diagram",
+  "annotator": "claude-assistant",
+  "transcript": "transcripts/gate-smashers-uml-class-diagram.json",
+  "annotatedOn": "2026-11-01",
+  "caveat": "Real lecture, ASR transcript (Groq whisper-large-v3-turbo, uncorrected, Hindi–English); several stretches are garbled (segments 13, 17, 19). Third-party video, not a course lecture.",
+  "boundaries": [
+    {
+      "afterSegmentIndex": 1,
+      "note": "what a structural/class diagram is → drawing a class (account): name, attributes, methods"
+    },
+    {
+      "afterSegmentIndex": 4,
+      "note": "attributes and methods → visibility: public, private, protected, package"
+    },
+    {
+      "afterSegmentIndex": 7,
+      "note": "visibility → relationships: association, aggregation, composition (seg 7 ends with 'next concept … relationship')"
+    },
+    {
+      "afterSegmentIndex": 11,
+      "note": "aggregation vs composition → inheritance / generalisation"
+    },
+    {
+      "afterSegmentIndex": 14,
+      "note": "inheritance (parent/child attributes) → multiplicity ('1', '0..*'); seg 14 straddles the change"
+    },
+    {
+      "afterSegmentIndex": 19,
+      "note": "multiplicity → realization, interfaces and dependency"
+    }
+  ]
+}

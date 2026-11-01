@@ -1,0 +1,29 @@
+
+{
+  "words": [
+    {
+      "text": "Binary",
+      "start": 1234,
+      "end": 1678,
+      "confidence": 0.96,
+      "speaker": "A"
+    },
+    {
+      "text": "search",
+      "start": 1700,
+      "end": 2145,
+      "confidence": 0.91,
+      "speaker": "A"
+    },
+    {
+      "text": "tree",
+      "start": 2200,
+      "end": 2600,
+      "confidence": 0.88,
+      "speaker": "B"
+    }
+  ],
+  "confidence": 0.9,
+  "speech_model_used": "universal-2",
+  "status": "completed"
+}

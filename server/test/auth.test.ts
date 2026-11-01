@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { requireAuth } from '../src/middleware/auth.js';
@@ -67,6 +67,71 @@ describe('POST /auth/register', () => {
       password: 'Must contain at least one digit',
       role: 'Must be "student" or "teacher"',
     });
+  });
+});
+
+describe('registration persists', () => {
+  it('a newly registered user is saved in MongoDB before 201, and can log in afterwards', async () => {
+    const before = await User.countDocuments();
+    const reg = await api().post('/api/v1/auth/register').send(student).expect(201);
+
+    // Persisted by the time the response arrived — not deferred, not mocked.
+    const stored = await User.findById(reg.body.user.id).select('+passwordHash').lean();
+    expect(await User.countDocuments()).toBe(before + 1);
+    expect(stored).toMatchObject({ email: student.email, name: student.name, role: 'student' });
+    expect(stored?.passwordHash).toMatch(/^\$2[aby]\$10\$/); // hashed, never the plain password
+    expect(stored?.passwordHash).not.toContain(student.password);
+    expect(stored?.createdAt).toBeInstanceOf(Date);
+
+    // A completely separate login with the same credentials finds that same document.
+    const login = await api().post('/api/v1/auth/login').send({ email: student.email, password: student.password }).expect(200);
+    expect(login.body.user.id).toBe(reg.body.user.id);
+    const me = await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${login.body.token}`).expect(200);
+    expect(me.body.user).toMatchObject({ id: reg.body.user.id, email: student.email });
+  });
+});
+
+describe('sign-up → sign-out → sign-in lifecycle (regression)', () => {
+  const creds = { email: student.email, password: student.password };
+
+  it('signing in and out many times never locks out the account (only failures are rate-limited)', async () => {
+    const reg = await api().post('/api/v1/auth/register').send(student).expect(201);
+    // Logging out is client-side (the token is discarded); there is no server call that touches the user.
+    for (let i = 1; i <= 15; i++) {
+      const res = await api().post('/api/v1/auth/login').send(creds);
+      expect(res.status, `login #${i}`).toBe(200);
+      expect(res.body.user.id).toBe(reg.body.user.id);
+    }
+    expect(await User.countDocuments({ email: student.email })).toBe(1); // still there, exactly once
+  });
+
+  it('failed attempts are still limited, and a correct password does not reset an attacker\'s budget', async () => {
+    await api().post('/api/v1/auth/register').send(student).expect(201);
+    await api().post('/api/v1/auth/login').send(creds).expect(200); // successes don't count…
+    for (let i = 0; i < 10; i++) await api().post('/api/v1/auth/login').send({ ...creds, password: 'wrong-password1' }).expect(401);
+    const blocked = await api().post('/api/v1/auth/login').send(creds).expect(429); // …but 10 failures do
+    expect(blocked.body.error.message).toMatch(/^Too many attempts\. Please try again in \d+ minutes?\.$/);
+    expect(blocked.headers['retry-after']).toMatch(/^\d+$/);
+  });
+
+  it('logging in with a differently-cased or padded email finds the same persisted user', async () => {
+    const reg = await api().post('/api/v1/auth/register').send({ ...student, email: '  Rohan.Mehta@Example.EDU ' }).expect(201);
+    const stored = await User.findOne({ email: 'rohan.mehta@example.edu' });
+    expect(stored?.id).toBe(reg.body.user.id);
+    const login = await api().post('/api/v1/auth/login').send({ email: 'ROHAN.MEHTA@example.edu', password: student.password }).expect(200);
+    expect(login.body.user.id).toBe(reg.body.user.id);
+  });
+
+  it('a database failure is a 500 with no token and no user — never a false success', async () => {
+    vi.spyOn(User, 'create').mockRejectedValueOnce(new Error('connection reset by Atlas'));
+    const res = await api().post('/api/v1/auth/register').send(student).expect(500);
+    expect(res.body.error).toMatchObject({ code: 'INTERNAL_ERROR', details: {} });
+    expect(JSON.stringify(res.body)).not.toMatch(/token|Atlas|connection reset/);
+    expect(await User.countDocuments({ email: student.email })).toBe(0);
+    vi.restoreAllMocks();
+    // The same registration succeeds once the database is back, and can sign in.
+    await api().post('/api/v1/auth/register').send(student).expect(201);
+    await api().post('/api/v1/auth/login').send(creds).expect(200);
   });
 });
 

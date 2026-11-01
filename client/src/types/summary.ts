@@ -16,6 +16,10 @@ export interface Summary {
   status: ReviewStatus;
   rejectionReason: RejectionReason | null;
   reviewNote: string | null;
+  /** 0–1 share of summary sentences supported by the section text; null if not checked. */
+  faithfulnessScore: number | null;
+  /** Sentences the faithfulness check flagged. */
+  unsupportedSentences: string[];
   reviewedBy: Id | null;
   reviewedAt: IsoDateTime | null;
   model: string;

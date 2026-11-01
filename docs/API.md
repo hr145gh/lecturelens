@@ -21,7 +21,7 @@ Generated from `server/src/routes/index.ts` and the module routers under `server
 | --- | --- | --- | --- | --- |
 | GET | [`/health`](#get-health) | D | public | Implemented |
 | POST | [`/auth/register`](#post-auth-register) | D | public · rate-limited 10 / 15 min / IP | Implemented |
-| POST | [`/auth/login`](#post-auth-login) | D | public · rate-limited 10 / 15 min / IP | Implemented |
+| POST | [`/auth/login`](#post-auth-login) | D | public · 10 failed attempts / 15 min / IP | Implemented |
 | GET | [`/auth/me`](#get-auth-me) | D | any signed-in user | Implemented |
 | GET | [`/users/me`](#get-users-me) | D | any signed-in user | Implemented |
 | PATCH | [`/users/me`](#patch-users-me) | D | any signed-in user | Implemented |
@@ -32,16 +32,16 @@ Generated from `server/src/routes/index.ts` and the module routers under `server
 | GET | [`/lectures/:id/status`](#get-lectures-id-status) | D | owner (teacher) | Implemented |
 | POST | [`/lectures/:id/reprocess`](#post-lectures-id-reprocess) | D | owner (teacher) | Implemented |
 | DELETE | [`/lectures/:id`](#delete-lectures-id) | D | owner (teacher) | Implemented |
-| GET | [`/lectures/:id/transcript`](#get-lectures-id-transcript) | A | owner, or a student if transcript approved | Stub (501) — PA.1 |
-| PATCH | [`/lectures/:id/segments/:index`](#patch-lectures-id-segments-index) | A | owner (teacher) | Stub (501) — PA.1 |
-| POST | [`/lectures/:id/transcript/approve`](#post-lectures-id-transcript-approve) | A | owner (teacher) | Stub (501) — PA.1 |
-| GET | [`/lectures/:id/topics`](#get-lectures-id-topics) | B | owner, or a student (approved only) | Stub (501) — PB.1 |
-| PATCH | [`/topics/:id`](#patch-topics-id) | B | owner (teacher) | Stub (501) — PB.1 |
-| POST | [`/topics/:id/approve`](#post-topics-id-approve) | B | owner (teacher) | Stub (501) — PB.1 |
+| GET | [`/lectures/:id/transcript`](#get-lectures-id-transcript) | A | owner, or a student if transcript approved | Implemented (PA.1) |
+| PATCH | [`/lectures/:id/segments/:index`](#patch-lectures-id-segments-index) | A | owner (teacher) | Implemented (PA.1) |
+| POST | [`/lectures/:id/transcript/approve`](#post-lectures-id-transcript-approve) | A | owner (teacher) | Implemented (PA.1) |
+| GET | [`/lectures/:id/topics`](#get-lectures-id-topics) | B | owner, or a student (approved only) | Implemented (PB.1) |
+| PATCH | [`/topics/:id`](#patch-topics-id) | B | owner (teacher) | Implemented (PB.1) |
+| POST | [`/topics/:id/approve`](#post-topics-id-approve) | B | owner (teacher) | Implemented (PB.1) |
 | POST | [`/topics/:id/reject`](#post-topics-id-reject) | B | owner (teacher) | Stub (501) — PB.1 |
-| GET | [`/lectures/:id/summaries`](#get-lectures-id-summaries) | B | owner, or a student (approved only) | Stub (501) — PB.2 |
+| GET | [`/lectures/:id/summaries`](#get-lectures-id-summaries) | B | owner, or a student (approved only) | Implemented (PB.2) |
 | PATCH | [`/summaries/:id`](#patch-summaries-id) | B | owner (teacher) | Stub (501) — PB.2 |
-| POST | [`/summaries/:id/approve`](#post-summaries-id-approve) | B | owner (teacher) | Stub (501) — PB.2 |
+| POST | [`/summaries/:id/approve`](#post-summaries-id-approve) | B | owner (teacher) | Implemented (PB.2) |
 | POST | [`/summaries/:id/reject`](#post-summaries-id-reject) | B | owner (teacher) | Stub (501) — PB.2 |
 | POST | [`/search`](#post-search) | C | any signed-in user | Stub (501) — PC.1 |
 | POST | [`/ask`](#post-ask) | C | any signed-in user | Stub (501) — PC.2 |
@@ -109,7 +109,7 @@ Generated from `server/src/routes/index.ts` and the module routers under `server
 <a id="post-auth-login"></a>
 ### POST `/auth/login`
 
-**Owner** D · **Auth** public · rate-limited 10 / 15 min / IP · **Status** Implemented
+**Owner** D · **Auth** public · 10 failed attempts / 15 min / IP (successful sign-ins never count) · **Status** Implemented
 
 **Request:** JSON `{ email, password }`.
 
@@ -252,7 +252,7 @@ JWT claims are only `{ sub, role, iat, exp }` (HS256).
 }
 ```
 
-Processing starts in the background. Until Member A's pipeline lands, the lecture becomes `failed` with `error.code: "NOT_IMPLEMENTED"`.
+Processing starts in the background: extracting → transcribing → chunking → segmenting → summarising (`indexing` is skipped until Member C's embeddings exist; the lecture then becomes `ready` with a `statusDetail` saying search is not available yet). Poll `GET /lectures/:id/status`. Failures set `failed` with a §4.2 `error.code`.
 
 **Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 413 PAYLOAD_TOO_LARGE `{ maxMb }`; 415 UNSUPPORTED_MEDIA_TYPE `{ mimeType }` (extension, declared type or magic bytes); 422 VALIDATION_FAILED (e.g. `consent.lecturerConsent`, `file`) — the stored file is deleted.
 
@@ -489,7 +489,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 <a id="get-lectures-id-transcript"></a>
 ### GET `/lectures/:id/transcript`
 
-**Owner** A · **Auth** owner, or a student if transcript approved · **Status** Stub (501) — PA.1
+**Owner** A · **Auth** owner, or a student if transcript approved · **Status** Implemented (PA.1)
 
 **Request:** No body.
 
@@ -538,12 +538,12 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 
 `items` shortened to two of 45 segments.
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN `{ reason: "TRANSCRIPT_NOT_APPROVED" }`; 404 NOT_FOUND; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN `{ reason: "TRANSCRIPT_NOT_APPROVED" }`; 404 NOT_FOUND.
 
 <a id="patch-lectures-id-segments-index"></a>
 ### PATCH `/lectures/:id/segments/:index`
 
-**Owner** A · **Auth** owner (teacher) · **Status** Stub (501) — PA.1
+**Owner** A · **Auth** owner (teacher) · **Status** Implemented (PA.1)
 
 **Request:** JSON `{ text }` (1–2000). Timing is not editable.
 
@@ -570,12 +570,12 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 }
 ```
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN; 404 NOT_FOUND; 422 VALIDATION_FAILED; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN; 404 NOT_FOUND; 422 VALIDATION_FAILED.
 
 <a id="post-lectures-id-transcript-approve"></a>
 ### POST `/lectures/:id/transcript/approve`
 
-**Owner** A · **Auth** owner (teacher) · **Status** Stub (501) — PA.1
+**Owner** A · **Auth** owner (teacher) · **Status** Implemented (PA.1)
 
 **Request:** No body.
 
@@ -615,14 +615,14 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 }
 ```
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN; 404 NOT_FOUND; 409 CONFLICT (not ready); 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN; 404 NOT_FOUND; 409 CONFLICT (not ready).
 
 ## B — Topics and summaries
 
 <a id="get-lectures-id-topics"></a>
 ### GET `/lectures/:id/topics`
 
-**Owner** B · **Auth** owner, or a student (approved only) · **Status** Stub (501) — PB.1
+**Owner** B · **Auth** owner, or a student (approved only) · **Status** Implemented (PB.1)
 
 **Request:** No body.
 
@@ -661,12 +661,12 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 
 `items` shortened to one of five.
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 404 NOT_FOUND; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 404 NOT_FOUND.
 
 <a id="patch-topics-id"></a>
 ### PATCH `/topics/:id`
 
-**Owner** B · **Auth** owner (teacher) · **Status** Stub (501) — PB.1
+**Owner** B · **Auth** owner (teacher) · **Status** Implemented (PB.1)
 
 **Request:** JSON `{ label?, keywords? }` (label ≤ 80; 3–8 keywords).
 
@@ -700,12 +700,12 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 }
 ```
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED.
 
 <a id="post-topics-id-approve"></a>
 ### POST `/topics/:id/approve`
 
-**Owner** B · **Auth** owner (teacher) · **Status** Stub (501) — PB.1
+**Owner** B · **Auth** owner (teacher) · **Status** Implemented (PB.1)
 
 **Request:** No body.
 
@@ -739,7 +739,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 }
 ```
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED.
 
 <a id="post-topics-id-reject"></a>
 ### POST `/topics/:id/reject`
@@ -783,7 +783,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 <a id="get-lectures-id-summaries"></a>
 ### GET `/lectures/:id/summaries`
 
-**Owner** B · **Auth** owner, or a student (approved only) · **Status** Stub (501) — PB.2
+**Owner** B · **Auth** owner, or a student (approved only) · **Status** Implemented (PB.2)
 
 **Request:** No body.
 
@@ -821,6 +821,8 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
       "status": "approved",
       "rejectionReason": null,
       "reviewNote": null,
+      "faithfulnessScore": 1,
+      "unsupportedSentences": [],
       "reviewedBy": "6650c3a0c3b2e41d8a000001",
       "reviewedAt": "2026-10-21T09:10:40.200Z",
       "model": "llama-3.3-70b-versatile",
@@ -834,7 +836,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 
 `items` shortened to one of five.
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 404 NOT_FOUND; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 404 NOT_FOUND.
 
 <a id="patch-summaries-id"></a>
 ### PATCH `/summaries/:id`
@@ -875,6 +877,8 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
     "status": "approved",
     "rejectionReason": null,
     "reviewNote": null,
+    "faithfulnessScore": 1,
+    "unsupportedSentences": [],
     "reviewedBy": "6650c3a0c3b2e41d8a000001",
     "reviewedAt": "2026-10-21T09:10:40.200Z",
     "model": "llama-3.3-70b-versatile",
@@ -890,7 +894,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 <a id="post-summaries-id-approve"></a>
 ### POST `/summaries/:id/approve`
 
-**Owner** B · **Auth** owner (teacher) · **Status** Stub (501) — PB.2
+**Owner** B · **Auth** owner (teacher) · **Status** Implemented (PB.2)
 
 **Request:** No body.
 
@@ -926,6 +930,8 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
     "status": "approved",
     "rejectionReason": null,
     "reviewNote": null,
+    "faithfulnessScore": 1,
+    "unsupportedSentences": [],
     "reviewedBy": "6650c3a0c3b2e41d8a000001",
     "reviewedAt": "2026-10-21T09:10:40.200Z",
     "model": "llama-3.3-70b-versatile",
@@ -936,7 +942,7 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
 }
 ```
 
-**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED; 501 NOT_IMPLEMENTED.
+**Errors:** 401 UNAUTHENTICATED (no/invalid/expired token; `details.reason: "expired"` when expired); 403 FORBIDDEN (student); 404 NOT_FOUND; 422 VALIDATION_FAILED.
 
 <a id="post-summaries-id-reject"></a>
 ### POST `/summaries/:id/reject`
@@ -977,6 +983,8 @@ No body. Derived documents and `STORAGE_DIR/<id>/` are removed.
     "status": "rejected",
     "rejectionReason": "UNSUPPORTED",
     "reviewNote": null,
+    "faithfulnessScore": 0.667,
+    "unsupportedSentences": ["Add gates distribute, multiply gates swap, max gates route, and gradients from multiple branches are summed."],
     "reviewedBy": null,
     "reviewedAt": null,
     "model": "llama-3.3-70b-versatile",

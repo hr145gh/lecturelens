@@ -10,5 +10,8 @@ export default defineConfig({
   },
   test: {
     setupFiles: ['./src/test/setup.ts'],
+    // Unit tests never touch a network: every domain uses the fixture-backed mock adapters.
+    // (The development default mocks only the domains the server cannot answer yet.)
+    env: { VITE_USE_MOCKS: 'all' },
   },
 });

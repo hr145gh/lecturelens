@@ -89,7 +89,13 @@ export async function buildApp(): Promise<Express> {
   return createApp();
 }
 
-/** Empties every collection (indexes kept), rate limits, stored media, and restores the stub pipeline. */
+/**
+ * Default pipeline for API tests: does nothing, so no test spawns FFmpeg or calls an ASR provider
+ * in the background. Tests of the real pipeline install `processingPipeline` themselves.
+ */
+export const idlePipeline: ProcessingPipeline = { startProcessing: async () => undefined };
+
+/** Empties every collection (indexes kept), rate limits, stored media, and installs the idle pipeline. */
 export async function resetDb(): Promise<void> {
   const db = mongoose.connection.db;
 

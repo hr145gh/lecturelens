@@ -147,3 +147,13 @@ describe('logging', () => {
     ).toEqual({ password: '[REDACTED]', nested: { apiKey: '[REDACTED]', Authorization: '[REDACTED]', list: [{ refreshToken: '[REDACTED]' }] }, keep: 1 });
   });
 });
+
+describe('test isolation', () => {
+  it('no provider key or ASR setting from server/.env reaches the tests', async () => {
+    const { env } = await import('../src/config/env.js');
+    expect(env.GROQ_API_KEY).toBeUndefined();
+    expect(env.ASSEMBLYAI_API_KEY).toBeUndefined();
+    expect(env.ASR_PROVIDER).toBeUndefined();
+    expect(env.ASR_USE_GLOSSARY).toBeUndefined();
+  });
+});

@@ -1,0 +1,69 @@
+# LectureLens ASR glossary — technical terms from the course's sample lectures
+# (mocks/lectures.json titles and descriptions, mocks/topics.json keywords, mocks/questions.json).
+# One term per line; blank lines and lines starting with # are ignored.
+# Passed to the ASR provider as keyterms when ASR_USE_GLOSSARY=true. This is PROMPTING the
+# provider's vocabulary bias — not training or fine-tuning a model.
+
+# Lecture 6 — linear regression and loss functions
+linear regression
+least squares
+loss function
+mean squared error
+normal equations
+probabilistic interpretation
+loss landscape
+parameters
+convex
+
+# Lecture 7 — gradient descent and backpropagation
+gradient
+gradient descent
+update rule
+learning rate
+learning rate decay
+oscillation
+divergence
+convergence
+stochastic gradient descent
+SGD
+mini-batch
+epoch
+iteration
+unbiased estimate
+chain rule
+computational graph
+upstream gradient
+local gradient
+backpropagation
+sigmoid
+vanishing gradients
+gradient checking
+two-layer network
+partial derivative
+theta
+
+# Lecture 8 — optimisers
+optimiser
+momentum
+RMSProp
+Adam
+adaptive learning rate
+
+# Lecture 9 — regularisation
+regularisation
+overfitting
+weight decay
+L2 regularisation
+early stopping
+dropout
+
+# Lecture 10 — convolutional neural networks
+convolutional neural network
+convolution
+padding
+stride
+pooling
+parameter sharing
+feature map
+kernel
+ReLU

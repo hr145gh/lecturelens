@@ -106,10 +106,15 @@ export const providerUnavailable = (provider: string): AppError =>
 export const conflict = (message: string, details: ErrorDetails = {}): AppError =>
   new AppError('CONFLICT', message, ERROR_STATUS.CONFLICT, details);
 
-export const rateLimited = (retryAfterSec: number): AppError =>
-  new AppError('RATE_LIMITED', 'Too many attempts. Please wait a few minutes and try again.', ERROR_STATUS.RATE_LIMITED, {
-    retryAfterSec,
-  });
+export const rateLimited = (retryAfterSec: number): AppError => {
+  const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
+  return new AppError(
+    'RATE_LIMITED',
+    `Too many attempts. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+    ERROR_STATUS.RATE_LIMITED,
+    { retryAfterSec },
+  );
+};
 
 export const internal = (): AppError =>
   new AppError('INTERNAL_ERROR', 'Something went wrong on our side. Please try again.');
