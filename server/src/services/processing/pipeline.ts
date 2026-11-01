@@ -12,6 +12,15 @@ import { extractAudio, MediaProcessingError } from '../media/extract.js';
 import { transcribeWithFallback } from '../asr/index.js';
 import { persistTranscription } from '../asr/persist.js';
 import { logger } from '../../utils/logger.js';
+import { buildChunks } from '../chunking/chunker.js';
+import {
+  assertTopicTiling,
+  embeddingSimilarity,
+  fixedWindow,
+  type EmbeddingProvider,
+  type TopicSectionOutput,
+} from '../topics/segmenter.js';
+import { labelSection } from '../topics/labeller.js';
 
 export interface ProcessingPipeline {
   startProcessing(lectureId: string, opts?: { fromStage?: LectureStatus }): Promise<void>;

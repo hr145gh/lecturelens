@@ -1,0 +1,5 @@
+method,lecture_id,precision,recall,f1,windowdiff
+fixed_window,6650c3a0c3b2e41d8a100001,0,0,0,0.512
+embedding_similarity,6650c3a0c3b2e41d8a100001,0.75,0.6,0.667,0.209
+fixed_window,6650c3a0c3b2e41d8a100002,1,1,1,0.091
+embedding_similarity,6650c3a0c3b2e41d8a100002,1,1,1,0.182
