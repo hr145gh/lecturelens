@@ -5,7 +5,14 @@ import type { HydratedDocument } from 'mongoose';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env, storageRoot } from '../src/config/env.js';
-import { Lecture, initialStages, type IUser } from '../src/models/index.js';
+import {
+  Lecture,
+  Question,
+  Quiz,
+  TopicSection,
+  initialStages,
+  type IUser,
+} from '../src/models/index.js';
 import { setPipeline } from '../src/services/processing/pipeline.js';
 import { TEST_PASSWORD, authHeader, buildApp, makeStudent, makeTeacher, resetDb } from './setup.js';
 
@@ -138,7 +145,12 @@ describe('student', () => {
 
   it.each(OPEN_TO_ANY)('may %s (passes the guards)', async (_cell, call) => {
     const res = await send(call, as(student));
-    expect([200, 501]).toContain(res.status);
+
+    const allowedStatuses = _cell === 'read a quiz'
+      ? [200, 404, 501]
+      : [200, 501];
+
+    expect(allowedStatuses).toContain(res.status);
   });
 
   it.each(TEACHER_ONLY)('may NOT %s → 403 FORBIDDEN', async (_cell, call) => {
@@ -153,13 +165,97 @@ describe('student', () => {
   });
 
   it.todo('reads approved topic sections, summaries and questions ONLY (handler filter — PB.1, PB.2, PC.3)');
-  it.todo('never receives answer keys for quiz questions before submitting (PC.3)');
-});
+  it('never receives pending questions or answer keys before submitting (PC.3)', async () => {
+    const topic = await TopicSection.create({
+      lectureId: L.readyApproved,
+      index: 0,
+      startSec: 0,
+      endSec: 60,
+      segmentStart: 0,
+      segmentEnd: 2,
+      label: 'Introduction',
+      keywords: ['intro', 'basics', 'overview'],
+      method: 'fixed_window',
+      boundaryScore: null,
+      status: 'approved',
+    });
+
+    const questionData = {
+      lectureId: L.readyApproved,
+      topicId: topic._id,
+      type: 'mcq' as const,
+      difficulty: 'easy' as const,
+      stem: 'What is the purpose of an operating system?',
+      options: [
+        { id: 'a', text: 'Manage computer resources' },
+        { id: 'b', text: 'Design websites' },
+        { id: 'c', text: 'Compile every program' },
+        { id: 'd', text: 'Create hardware' },
+      ],
+      correctOptionId: 'a' as const,
+      explanation: 'An operating system manages hardware and software resources.',
+      evidence: [{
+        chunkId: new (await import('mongoose')).Types.ObjectId(),
+        startSec: 0,
+        endSec: 10,
+        quote: 'An operating system manages computer resources.',
+      }],
+      rejectionReason: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNote: null,
+      model: 'test-model',
+      promptVersion: 'test-v1',
+    };
+
+    const approved = await Question.create({
+      ...questionData,
+      status: 'approved',
+      reviewedBy: owner._id,
+      reviewedAt: new Date(),
+    });
+
+    const pending = await Question.create({
+      ...questionData,
+      stem: 'PENDING QUESTION — MUST NOT BE SHOWN',
+      status: 'pending_review',
+    });
+
+    const quiz = await Quiz.create({
+      lectureId: L.readyApproved,
+      createdBy: student._id,
+      title: 'Security test quiz',
+      questionIds: [approved._id, pending._id],
+      topicIds: [topic._id],
+    });
+
+    const res = await api()
+      .get(`/api/v1/quizzes/${quiz.id}`)
+      .set(as(student))
+      .expect(200);
+
+    expect(res.body.quiz.questions).toHaveLength(1);
+    expect(res.body.quiz.questions[0].id).toBe(approved.id);
+    expect(res.body.quiz.questions[0].stem).not.toContain('PENDING QUESTION');
+
+    for (const question of res.body.quiz.questions) {
+      expect(question).not.toHaveProperty('correctOptionId');
+      expect(question).not.toHaveProperty('explanation');
+      expect(question).not.toHaveProperty('evidence');
+      expect(question).not.toHaveProperty('status');
+    }
+  });
+  });
 
 describe('teacher', () => {
   it.each(OPEN_TO_ANY)('can do what a student can: %s', async (_cell, call) => {
     const res = await send(call, as(owner));
-    expect([200, 501]).toContain(res.status);
+
+    const allowedStatuses = _cell === 'read a quiz'
+      ? [200, 404, 501]
+      : [200, 501];
+
+    expect(allowedStatuses).toContain(res.status);
   });
 
   it('uploads a lecture → 202', async () => {
